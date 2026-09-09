@@ -1,0 +1,13 @@
+# Local database & logs
+monitor.db
+monitor.db-journal
+test-*.db
+*.log
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment / local overrides
+.env

@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FortiGate Dual-WAN Link Monitor & Failover Guard</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2300f0ff'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.4z'/></svg>">
+</head>
+<body>
+  <!-- Top Navigation / Header -->
+  <header class="navbar">
+    <div class="brand">
+      <div class="pulse-icon" id="pulseIndicator"></div>
+      <div class="brand-text">
+        <span class="brand-title">FortiGate Dual-WAN Monitor</span>
+        <span class="brand-subtitle">Real-time SLA Degradation & Failover Guard</span>
+      </div>
+    </div>
+
+    <div class="nav-badges">
+      <div class="badge fg-status" id="fgStatusBadge">
+        <span class="dot"></span>
+        <span id="fgStatusText">FortiGate: Initializing...</span>
+      </div>
+      <div class="badge sse-status" id="sseStatusBadge">
+        <span class="dot"></span>
+        <span id="sseStatusText">Live Feed: Active</span>
+      </div>
+    </div>
+
+    <div class="nav-actions">
+      <button class="btn btn-outline" id="btnAudioToggle" title="Toggle audio alarm on degradation">
+        <span id="audioIcon">🔔</span> <span id="audioText">Alert Audio: ON</span>
+      </button>
+      <button class="btn btn-primary" id="btnOpenTuningGuide">
+        📖 FortiOS Tuning Guide
+      </button>
+      <button class="btn btn-secondary" id="btnOpenSettings">
+        ⚙️ Settings & Alerts
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Active Incidents Alert Banner -->
+    <div class="alert-banner hidden" id="globalAlertBanner">
+      <div class="alert-banner-content">
+        <span class="alert-banner-icon">🚨</span>
+        <div class="alert-banner-text">
+          <strong id="bannerTitle">Service Degradation Alert</strong>
+          <span id="bannerDetails">WAN 1 is experiencing packet loss</span>
+        </div>
+      </div>
+      <button class="btn-banner-close" id="btnDismissBanner">&times;</button>
+    </div>
+
+    <!-- Quick Simulation & Testing Toolbar -->
+    <section class="simulation-toolbar card">
+      <div class="toolbar-header">
+        <div class="toolbar-title">
+          <span class="sim-badge" id="simModeBadge">SIMULATOR ACTIVE</span>
+          <span>Interactive Degradation Tester</span>
+          <span class="sim-hint">(Test instant alerts & UI response before connecting to FortiGate)</span>
+        </div>
+        <div class="toolbar-toggle">
+          <label class="switch">
+            <input type="checkbox" id="chkSimulationToggle" checked>
+            <span class="slider round"></span>
+          </label>
+          <span class="switch-label">Simulate WAN Traffic</span>
+        </div>
+      </div>
+      <div class="sim-buttons" id="simButtonsGroup">
+        <button class="btn btn-sim normal" data-link="all" data-condition="normal">
+          ✅ All Normal
+        </button>
+        <button class="btn btn-sim warning" data-link="wan1" data-condition="latency_spike">
+          ⚠️ Spike WAN1 Latency (240ms)
+        </button>
+        <button class="btn btn-sim critical" data-link="wan1" data-condition="packet_loss">
+          🚨 Inject WAN1 Loss (16%)
+        </button>
+        <button class="btn btn-sim down" data-link="wan2" data-condition="down">
+          ⛔ Kill WAN2 (Hard Down)
+        </button>
+        <button class="btn btn-sim flap" data-link="wan1" data-condition="intermittent_flap">
+          ⚡ Flap WAN1
+        </button>
+      </div>
+    </section>
+
+    <!-- Dual WAN Health Cards -->
+    <section class="wan-grid">
+      <!-- WAN 1 Card -->
+      <div class="wan-card" id="wan1Card">
+        <div class="wan-card-header">
+          <div class="wan-info">
+            <h2 class="wan-name">WAN 1 <span class="tag tag-primary">Primary ISP</span></h2>
+            <span class="wan-interface-id" id="wan1IfName">Interface: port1 / wan1</span>
+          </div>
+          <div class="status-pill status-healthy" id="wan1StatusPill">
+            <span class="pill-dot"></span>
+            <span id="wan1StatusText">HEALTHY</span>
+          </div>
+        </div>
+
+        <div class="issues-box hidden" id="wan1IssuesBox">
+          <!-- Populated when degraded -->
+        </div>
+
+        <div class="metric-tiles">
+          <div class="metric-tile">
+            <span class="metric-label">Latency (RTT)</span>
+            <span class="metric-value" id="wan1Latency">-- ms</span>
+            <span class="metric-sub" id="wan1LatencySub">Target &lt; 120ms</span>
+          </div>
+          <div class="metric-tile">
+            <span class="metric-label">Packet Loss</span>
+            <span class="metric-value" id="wan1Loss">-- %</span>
+            <span class="metric-sub" id="wan1LossSub">Target &lt; 2.0%</span>
+          </div>
+          <div class="metric-tile">
+            <span class="metric-label">Jitter</span>
+            <span class="metric-value" id="wan1Jitter">-- ms</span>
+            <span class="metric-sub">Variation</span>
+          </div>
+          <div class="metric-tile">
+            <span class="metric-label">Throughput</span>
+            <span class="metric-value" id="wan1Bandwidth">-- Mbps</span>
+            <span class="metric-sub" id="wan1BandwidthSub">Rx / Tx</span>
+          </div>
+        </div>
+
+        <div class="link-footer">
+          <span class="carrier-badge carrier-up" id="wan1CarrierBadge">CARRIER UP</span>
+          <span class="last-sync" id="wan1LastSync">Last sampled: Just now</span>
+        </div>
+      </div>
+
+      <!-- WAN 2 Card -->
+      <div class="wan-card" id="wan2Card">
+        <div class="wan-card-header">
+          <div class="wan-info">
+            <h2 class="wan-name">WAN 2 <span class="tag tag-secondary">Secondary ISP</span></h2>
+            <span class="wan-interface-id" id="wan2IfName">Interface: port2 / wan2</span>
+          </div>
+          <div class="status-pill status-healthy" id="wan2StatusPill">
+            <span class="pill-dot"></span>
+            <span id="wan2StatusText">HEALTHY</span>
+          </div>
+        </div>
+
+        <div class="issues-box hidden" id="wan2IssuesBox">
+          <!-- Populated when degraded -->
+        </div>
+
+        <div class="metric-tiles">
+          <div class="metric-tile">
+            <span class="metric-label">Latency (RTT)</span>
+            <span class="metric-value" id="wan2Latency">-- ms</span>
+            <span class="metric-sub" id="wan2LatencySub">Target &lt; 120ms</span>
+          </div>
+          <div class="metric-tile">
+            <span class="metric-label">Packet Loss</span>
+            <span class="metric-value" id="wan2Loss">-- %</span>
+            <span class="metric-sub" id="wan2LossSub">Target &lt; 2.0%</span>
+          </div>
+          <div class="metric-tile">
+            <span class="metric-label">Jitter</span>
+            <span class="metric-value" id="wan2Jitter">-- ms</span>
+            <span class="metric-sub">Variation</span>
+          </div>
+          <div class="metric-tile">
+            <span class="metric-label">Throughput</span>
+            <span class="metric-value" id="wan2Bandwidth">-- Mbps</span>
+            <span class="metric-sub" id="wan2BandwidthSub">Rx / Tx</span>
+          </div>
+        </div>
+
+        <div class="link-footer">
+          <span class="carrier-badge carrier-up" id="wan2CarrierBadge">CARRIER UP</span>
+          <span class="last-sync" id="wan2LastSync">Last sampled: Just now</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Telemetry Real-time Charts -->
+    <section class="chart-section card">
+      <div class="chart-header">
+        <div class="chart-title-group">
+          <h3 class="chart-title">Real-Time Performance SLA Telemetry</h3>
+          <span class="chart-legend">
+            <span class="legend-item"><span class="legend-color wan1"></span> WAN 1</span>
+            <span class="legend-item"><span class="legend-color wan2"></span> WAN 2</span>
+            <span class="legend-item"><span class="legend-color threshold-warn"></span> Warning Threshold</span>
+            <span class="legend-item"><span class="legend-color threshold-crit"></span> Critical Threshold</span>
+          </span>
+        </div>
+        <div class="timeframe-buttons">
+          <button class="btn-time active" data-minutes="15">15m</button>
+          <button class="btn-time" data-minutes="60">1h</button>
+          <button class="btn-time" data-minutes="360">6h</button>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-box">
+          <div class="chart-box-title">Latency (RTT in ms)</div>
+          <canvas id="latencyChart" width="600" height="220"></canvas>
+        </div>
+        <div class="chart-box">
+          <div class="chart-box-title">Packet Loss (%)</div>
+          <canvas id="lossChart" width="600" height="220"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Degradation Incident Audit Log -->
+    <section class="incidents-section card">
+      <div class="incidents-header">
+        <h3 class="card-title">Degradation Incident & Alert Audit Log</h3>
+        <button class="btn btn-sm btn-outline" id="btnRefreshIncidents">🔄 Refresh</button>
+      </div>
+      <div class="table-container">
+        <table class="incidents-table">
+          <thead>
+            <tr>
+              <th>Start Time</th>
+              <th>Link</th>
+              <th>Severity</th>
+              <th>Trigger Reason</th>
+              <th>Peak Values</th>
+              <th>Duration</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="incidentsTableBody">
+            <tr>
+              <td colspan="7" class="empty-state">No degradation incidents recorded. Links operating normally.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- FortiOS Tuning Guide Modal -->
+  <div class="modal-backdrop hidden" id="tuningGuideModal">
+    <div class="modal-dialog modal-large">
+      <div class="modal-header">
+        <h3>🛡️ FortiGate SD-WAN Tuning Guide: Prevent User Impact on Failover</h3>
+        <button class="modal-close" id="btnCloseTuningGuide">&times;</button>
+      </div>
+      <div class="modal-body tuning-content">
+        <div class="guide-alert">
+          <strong>Why do your users get disconnected when one WAN degrades?</strong><br>
+          By default, standard FortiGate ECMP (load balancing) continues hashing new and existing TCP connections onto a link as long as the physical interface is UP. Furthermore, ongoing TCP sessions freeze because NAT session tables are not forcibly reset. Apply these 5 optimizations to achieve <strong>sub-second zero-impact failover</strong>.
+        </div>
+
+        <div class="guide-step">
+          <h4>1. Enable Immediate Session Reset on SLA Failover (FortiOS CLI)</h4>
+          <p>When WAN1 drops or degrades, this command immediately sends TCP RST packets to clients so web browsers, VPNs, and applications reconnect instantly via WAN2 without stalling for 30–60 seconds:</p>
+          <pre><code>config system sdwan
+    config service
+        edit 1
+            set name "Internet-Traffic"
+            set service-reset enable
+        next
+    end
+end</code></pre>
+        </div>
+
+        <div class="guide-step">
+          <h4>2. Enable SNAT Route Change on Session Failover</h4>
+          <p>Ensures existing NATed traffic changes to the surviving WAN IP address automatically:</p>
+          <pre><code>config system interface
+    edit "wan1"
+        set snat-route-change enable
+    next
+    edit "wan2"
+        set snat-route-change enable
+    next
+end</code></pre>
+        </div>
+
+        <div class="guide-step">
+          <h4>3. Configure High-Sensitivity SD-WAN Performance SLA</h4>
+          <p>Decrease the health check probe interval and failure count so degradation is declared in under 1.5 seconds instead of 30 seconds:</p>
+          <pre><code>config system sdwan
+    config health-check
+        edit "Default_DNS"
+            set server "8.8.8.8" "1.1.1.1"
+            set interval 500       # Probe every 500ms
+            set failtime 3         # Fail after 3 misses (1.5 seconds)
+            set recoverytime 5     # Require 5 clean probes to recover
+            config sla
+                edit 1
+                    set latency-threshold 120
+                    set jitter-threshold 25
+                    set packetloss-threshold 2
+                next
+            end
+        next
+    end
+end</code></pre>
+        </div>
+
+        <div class="guide-step">
+          <h4>4. Change SD-WAN Rule Mode from Simple ECMP to "Lowest Cost (SLA)"</h4>
+          <p>In GUI: <strong>Network > SD-WAN > SD-WAN Rules</strong>. Set strategy to <strong>Lowest Cost (SLA)</strong> or <strong>Maximize Bandwidth (SLA)</strong> with your SLA check selected. Traffic will <em>never</em> be forwarded to a degraded link.</p>
+        </div>
+
+        <div class="guide-step">
+          <h4>5. Setup FortiGate Webhook to notify this App Instantly</h4>
+          <p>Under <strong>Security Fabric > Automation > Create Stitch</strong>:</p>
+          <ul>
+            <li><strong>Trigger:</strong> FortiOS Event Log -> Event ID <code>0100022922</code> (SD-WAN SLA status change) or <code>0100022924</code>.</li>
+            <li><strong>Action:</strong> Webhook -> URL: <code>http://&lt;your-app-ip&gt;:4000/api/webhook/fortigate</code></li>
+          </ul>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btnDismissTuning">Understood</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings & Alerts Configuration Modal -->
+  <div class="modal-backdrop hidden" id="settingsModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>⚙️ Monitor Settings & Notification Channels</h3>
+        <button class="modal-close" id="btnCloseSettings">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Tabs -->
+        <div class="settings-tabs">
+          <button class="tab-btn active" data-tab="tab-fortigate">FortiGate API</button>
+          <button class="tab-btn" data-tab="tab-thresholds">Thresholds</button>
+          <button class="tab-btn" data-tab="tab-notifications">Notifications</button>
+        </div>
+
+        <!-- FortiGate Settings Tab -->
+        <div class="tab-content active" id="tab-fortigate">
+          <div class="form-group">
+            <label>FortiGate Admin Host / URL</label>
+            <input type="text" id="cfgFgHost" class="form-control" placeholder="https://192.168.1.1">
+            <small>Internal IP or FQDN of your FortiGate firewall.</small>
+          </div>
+          <div class="form-group">
+            <label>REST API Administrator Token</label>
+            <input type="password" id="cfgFgToken" class="form-control" placeholder="Paste API token from System > Administrators">
+            <small>Generate under FortiGate GUI: <em>System &gt; Administrators &gt; Create New &gt; REST API Admin</em>.</small>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>WAN 1 Interface Name</label>
+              <input type="text" id="cfgFgWan1" class="form-control" value="wan1">
+            </div>
+            <div class="form-group">
+              <label>WAN 2 Interface Name</label>
+              <input type="text" id="cfgFgWan2" class="form-control" value="wan2">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>SD-WAN Health Check Name</label>
+            <input type="text" id="cfgFgHealthCheck" class="form-control" value="Default_DNS">
+          </div>
+          <div class="form-actions-inline">
+            <button class="btn btn-secondary" id="btnTestFgConnection">Test FortiGate Connection</button>
+            <span id="fgTestResult" class="test-result-inline"></span>
+          </div>
+        </div>
+
+        <!-- Thresholds Settings Tab -->
+        <div class="tab-content" id="tab-thresholds">
+          <h4>Degradation Criteria</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Packet Loss Warning (%)</label>
+              <input type="number" id="thLossWarn" class="form-control" step="0.5" value="2.0">
+            </div>
+            <div class="form-group">
+              <label>Packet Loss Critical (%)</label>
+              <input type="number" id="thLossCrit" class="form-control" step="0.5" value="8.0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Latency Warning (ms)</label>
+              <input type="number" id="thLatWarn" class="form-control" value="120">
+            </div>
+            <div class="form-group">
+              <label>Latency Critical (ms)</label>
+              <input type="number" id="thLatCrit" class="form-control" value="250">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Jitter Warning (ms)</label>
+              <input type="number" id="thJitWarn" class="form-control" value="25">
+            </div>
+            <div class="form-group">
+              <label>Jitter Critical (ms)</label>
+              <input type="number" id="thJitCrit" class="form-control" value="50">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Consecutive Probes to Alert</label>
+              <input type="number" id="thConsecFails" class="form-control" value="2">
+            </div>
+            <div class="form-group">
+              <label>Consecutive Clean Probes to Recover</label>
+              <input type="number" id="thConsecRecovery" class="form-control" value="4">
+            </div>
+          </div>
+        </div>
+
+        <!-- Notification Channels Tab -->
+        <div class="tab-content" id="tab-notifications">
+          <!-- Windows Native Desktop Notification -->
+          <div class="notif-box">
+            <div class="notif-header">
+              <label class="checkbox-label">
+                <input type="checkbox" id="notifWinToast" checked>
+                <strong>Windows Desktop Toast Notification</strong>
+              </label>
+              <button class="btn btn-xs btn-outline" data-test="windowsToast">Send Test Toast</button>
+            </div>
+            <p class="notif-desc">Direct Windows Action Center toast alert via PowerShell WinRT.</p>
+          </div>
+
+          <!-- Telegram Bot -->
+          <div class="notif-box">
+            <div class="notif-header">
+              <label class="checkbox-label">
+                <input type="checkbox" id="notifTelegram">
+                <strong>Telegram Bot Alert</strong>
+              </label>
+              <button class="btn btn-xs btn-outline" data-test="telegram">Test Telegram</button>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Bot Token</label>
+                <input type="password" id="cfgTeleToken" class="form-control" placeholder="123456:ABC-DEF...">
+              </div>
+              <div class="form-group">
+                <label>Chat ID</label>
+                <input type="text" id="cfgTeleChatId" class="form-control" placeholder="-100123456789">
+              </div>
+            </div>
+          </div>
+
+          <!-- Discord Webhook -->
+          <div class="notif-box">
+            <div class="notif-header">
+              <label class="checkbox-label">
+                <input type="checkbox" id="notifDiscord">
+                <strong>Discord Webhook</strong>
+              </label>
+              <button class="btn btn-xs btn-outline" data-test="discord">Test Discord</button>
+            </div>
+            <div class="form-group">
+              <label>Discord Webhook URL</label>
+              <input type="text" id="cfgDiscordUrl" class="form-control" placeholder="https://discord.com/api/webhooks/...">
+            </div>
+          </div>
+
+          <!-- Slack / Teams Webhook -->
+          <div class="notif-box">
+            <div class="notif-header">
+              <label class="checkbox-label">
+                <input type="checkbox" id="notifSlack">
+                <strong>Slack / MS Teams Webhook</strong>
+              </label>
+              <button class="btn btn-xs btn-outline" data-test="slack">Test Slack</button>
+            </div>
+            <div class="form-group">
+              <label>Webhook URL</label>
+              <input type="text" id="cfgSlackUrl" class="form-control" placeholder="https://hooks.slack.com/services/...">
+            </div>
+          </div>
+          <span id="notifTestFeedback" class="test-result-inline"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btnCancelSettings">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveSettings">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
