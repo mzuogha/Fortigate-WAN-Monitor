@@ -5,17 +5,20 @@ $zipPath = Join-Path (Split-Path $sourceDir -Parent) "fortigate-wan-monitor.zip"
 
 Write-Host "Packaging application into: $zipPath ..." -ForegroundColor Cyan
 
-# Files and directories to include
 $filesToInclude = @(
     "config.js",
     "db.js",
     "fortigate-client.js",
+    "smtp-client.js",
+    "whatsapp-client.js",
     "probe-engine.js",
     "alert-manager.js",
     "server.js",
     "start.bat",
     "start.ps1",
     "register-service.ps1",
+    "uninstall-service.ps1",
+    "package-app.ps1",
     "README.md",
     "public"
 )

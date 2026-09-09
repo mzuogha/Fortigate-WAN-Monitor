@@ -105,9 +105,7 @@
           </div>
         </div>
 
-        <div class="issues-box hidden" id="wan1IssuesBox">
-          <!-- Populated when degraded -->
-        </div>
+        <div class="issues-box hidden" id="wan1IssuesBox"></div>
 
         <div class="metric-tiles">
           <div class="metric-tile">
@@ -151,9 +149,7 @@
           </div>
         </div>
 
-        <div class="issues-box hidden" id="wan2IssuesBox">
-          <!-- Populated when degraded -->
-        </div>
+        <div class="issues-box hidden" id="wan2IssuesBox"></div>
 
         <div class="metric-tiles">
           <div class="metric-tile">
@@ -328,7 +324,7 @@ end</code></pre>
 
   <!-- Settings & Alerts Configuration Modal -->
   <div class="modal-backdrop hidden" id="settingsModal">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-large">
       <div class="modal-header">
         <h3>⚙️ Monitor Settings & Notification Channels</h3>
         <button class="modal-close" id="btnCloseSettings">&times;</button>
@@ -338,7 +334,8 @@ end</code></pre>
         <div class="settings-tabs">
           <button class="tab-btn active" data-tab="tab-fortigate">FortiGate API</button>
           <button class="tab-btn" data-tab="tab-thresholds">Thresholds</button>
-          <button class="tab-btn" data-tab="tab-notifications">Notifications</button>
+          <button class="tab-btn" data-tab="tab-notifications">Notifications & Alerts</button>
+          <button class="tab-btn" data-tab="tab-service">24/7 Persistence</button>
         </div>
 
         <!-- FortiGate Settings Tab -->
@@ -420,24 +417,125 @@ end</code></pre>
 
         <!-- Notification Channels Tab -->
         <div class="tab-content" id="tab-notifications">
-          <!-- Windows Native Desktop Notification -->
+          <!-- 1. Email Notification (SMTP) -->
+          <div class="notif-box">
+            <div class="notif-header">
+              <label class="checkbox-label">
+                <input type="checkbox" id="notifEmail">
+                <strong>📧 Email Alerts (SMTP)</strong>
+              </label>
+              <button class="btn btn-xs btn-outline" data-test="email">Send Test Email</button>
+            </div>
+            <p class="notif-desc">Direct email delivery via your SMTP server (Office 365, Gmail, Exchange, or local relay).</p>
+            <div class="form-row">
+              <div class="form-group">
+                <label>SMTP Host</label>
+                <input type="text" id="cfgSmtpHost" class="form-control" placeholder="smtp.office365.com / smtp.gmail.com">
+              </div>
+              <div class="form-group">
+                <label>SMTP Port</label>
+                <input type="number" id="cfgSmtpPort" class="form-control" value="587">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>SMTP Username</label>
+                <input type="text" id="cfgSmtpUser" class="form-control" placeholder="alerts@yourdomain.com">
+              </div>
+              <div class="form-group">
+                <label>SMTP Password / App Password</label>
+                <input type="password" id="cfgSmtpPass" class="form-control" placeholder="Password">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>From Address</label>
+                <input type="text" id="cfgSmtpFrom" class="form-control" placeholder="wan-monitor@yourdomain.com">
+              </div>
+              <div class="form-group">
+                <label>Recipient Email(s)</label>
+                <input type="text" id="cfgSmtpTo" class="form-control" placeholder="noc-team@yourdomain.com">
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. WhatsApp Notification -->
+          <div class="notif-box">
+            <div class="notif-header">
+              <label class="checkbox-label">
+                <input type="checkbox" id="notifWhatsapp">
+                <strong>💬 WhatsApp Instant Notifications</strong>
+              </label>
+              <button class="btn btn-xs btn-outline" data-test="whatsapp">Send Test WhatsApp</button>
+            </div>
+            <p class="notif-desc">Supports CallMeBot (instant setup with 0 hassle), Twilio for WhatsApp, or Custom Webhooks.</p>
+            <div class="form-group">
+              <label>WhatsApp Provider</label>
+              <select id="cfgWaProvider" class="form-control">
+                <option value="callmebot">CallMeBot (Free, Instant Setup via WhatsApp)</option>
+                <option value="twilio">Twilio for WhatsApp</option>
+                <option value="webhook">Custom WhatsApp Webhook</option>
+              </select>
+            </div>
+
+            <!-- CallMeBot fields -->
+            <div id="waCallmebotFields" class="form-row">
+              <div class="form-group">
+                <label>Phone Number (with country code)</label>
+                <input type="text" id="cfgWaPhone" class="form-control" placeholder="+1234567890">
+                <small>To get free apikey: Send "I allow callmebot to send me messages" to +34 941 070 000 on WhatsApp.</small>
+              </div>
+              <div class="form-group">
+                <label>CallMeBot API Key</label>
+                <input type="password" id="cfgWaApiKey" class="form-control" placeholder="123456">
+              </div>
+            </div>
+
+            <!-- Twilio fields -->
+            <div id="waTwilioFields" class="form-row hidden">
+              <div class="form-group">
+                <label>Twilio Account SID</label>
+                <input type="text" id="cfgTwilioSid" class="form-control" placeholder="ACxxxxxxxxxxxx">
+              </div>
+              <div class="form-group">
+                <label>Twilio Auth Token</label>
+                <input type="password" id="cfgTwilioToken" class="form-control" placeholder="Token">
+              </div>
+              <div class="form-group">
+                <label>Twilio From (e.g. +14155238886)</label>
+                <input type="text" id="cfgTwilioFrom" class="form-control" placeholder="+14155238886">
+              </div>
+              <div class="form-group">
+                <label>Recipient WhatsApp Number</label>
+                <input type="text" id="cfgTwilioTo" class="form-control" placeholder="+1234567890">
+              </div>
+            </div>
+
+            <!-- Custom Webhook field -->
+            <div id="waWebhookFields" class="form-group hidden">
+              <label>WhatsApp Webhook URL</label>
+              <input type="text" id="cfgWaWebhookUrl" class="form-control" placeholder="https://your-whatsapp-gateway/api/send">
+            </div>
+          </div>
+
+          <!-- 3. Windows Native Desktop Toast -->
           <div class="notif-box">
             <div class="notif-header">
               <label class="checkbox-label">
                 <input type="checkbox" id="notifWinToast" checked>
-                <strong>Windows Desktop Toast Notification</strong>
+                <strong>🖥️ Windows Desktop Toast Notification</strong>
               </label>
               <button class="btn btn-xs btn-outline" data-test="windowsToast">Send Test Toast</button>
             </div>
             <p class="notif-desc">Direct Windows Action Center toast alert via PowerShell WinRT.</p>
           </div>
 
-          <!-- Telegram Bot -->
+          <!-- 4. Telegram Bot -->
           <div class="notif-box">
             <div class="notif-header">
               <label class="checkbox-label">
                 <input type="checkbox" id="notifTelegram">
-                <strong>Telegram Bot Alert</strong>
+                <strong>✈️ Telegram Bot Alert</strong>
               </label>
               <button class="btn btn-xs btn-outline" data-test="telegram">Test Telegram</button>
             </div>
@@ -453,12 +551,12 @@ end</code></pre>
             </div>
           </div>
 
-          <!-- Discord Webhook -->
+          <!-- 5. Discord Webhook -->
           <div class="notif-box">
             <div class="notif-header">
               <label class="checkbox-label">
                 <input type="checkbox" id="notifDiscord">
-                <strong>Discord Webhook</strong>
+                <strong>🎮 Discord Webhook</strong>
               </label>
               <button class="btn btn-xs btn-outline" data-test="discord">Test Discord</button>
             </div>
@@ -468,12 +566,12 @@ end</code></pre>
             </div>
           </div>
 
-          <!-- Slack / Teams Webhook -->
+          <!-- 6. Slack / Teams Webhook -->
           <div class="notif-box">
             <div class="notif-header">
               <label class="checkbox-label">
                 <input type="checkbox" id="notifSlack">
-                <strong>Slack / MS Teams Webhook</strong>
+                <strong>💼 Slack / MS Teams Webhook</strong>
               </label>
               <button class="btn btn-xs btn-outline" data-test="slack">Test Slack</button>
             </div>
@@ -482,7 +580,27 @@ end</code></pre>
               <input type="text" id="cfgSlackUrl" class="form-control" placeholder="https://hooks.slack.com/services/...">
             </div>
           </div>
+
           <span id="notifTestFeedback" class="test-result-inline"></span>
+        </div>
+
+        <!-- 24/7 Persistence Tab -->
+        <div class="tab-content" id="tab-service">
+          <h4>Windows Server 24/7 Background Service</h4>
+          <p style="font-size:0.85rem; color:var(--text-secondary);">
+            To keep this monitor constantly running across system reboots, user logoffs, and power outages, install it as a Windows background task using the provided script.
+          </p>
+          <div class="guide-step">
+            <h4>One-Click Persistence Installation:</h4>
+            <p>Open <strong>PowerShell as Administrator</strong> in the application directory and run:</p>
+            <pre><code>.\register-service.ps1</code></pre>
+          </div>
+          <div class="guide-alert" style="margin-top:10px;">
+            <strong>Features enabled by register-service.ps1:</strong><br>
+            • <strong>Automatic Boot Startup:</strong> Starts before user login (`AtStartup`).<br>
+            • <strong>Auto-Recovery:</strong> Automatically restarts within 1 minute if killed or stopped.<br>
+            • <strong>Firewall Opening:</strong> Allows inbound traffic on port 4000 for webhooks & dashboards.
+          </div>
         </div>
       </div>
       <div class="modal-footer">

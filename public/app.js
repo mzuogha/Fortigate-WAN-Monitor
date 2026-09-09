@@ -103,12 +103,11 @@ async function init() {
   await loadIncidents();
   connectSse();
 
-  // Redraw charts every 2 seconds for continuous time-series flow
   setInterval(renderCharts, 2000);
 }
 
 /**
- * Audio Synthesizer (Web Audio API - zero audio asset dependencies)
+ * Audio Synthesizer (Web Audio API)
  */
 function playAlertSound(severity = 'WARNING') {
   if (!audioEnabled) return;
@@ -127,7 +126,6 @@ function playAlertSound(severity = 'WARNING') {
 
     const now = audioContext.currentTime;
     if (severity === 'CRITICAL') {
-      // Urgent double beep (880Hz / 440Hz)
       osc.type = 'sawtooth';
       osc.frequency.setValueAtTime(880, now);
       osc.frequency.setValueAtTime(440, now + 0.15);
@@ -137,7 +135,6 @@ function playAlertSound(severity = 'WARNING') {
       osc.start(now);
       osc.stop(now + 0.5);
     } else {
-      // Gentle chime (523Hz C5 to 659Hz E5)
       osc.type = 'sine';
       osc.frequency.setValueAtTime(523.25, now);
       osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.2);
@@ -146,9 +143,7 @@ function playAlertSound(severity = 'WARNING') {
       osc.start(now);
       osc.stop(now + 0.35);
     }
-  } catch (e) {
-    // Audio policy blocked until user interacts
-  }
+  } catch (e) {}
 }
 
 /**
@@ -169,7 +164,6 @@ function connectSse() {
     el.sseStatusText.textContent = 'Live Feed: Reconnecting...';
   };
 
-  // Metrics event
   sseSource.addEventListener('metrics', (e) => {
     try {
       const data = JSON.parse(e.data);
@@ -179,7 +173,6 @@ function connectSse() {
     }
   });
 
-  // Alert event
   sseSource.addEventListener('alert', (e) => {
     try {
       const alert = JSON.parse(e.data);
@@ -238,14 +231,12 @@ function updateDashboard(data) {
 
   const { wan1, wan2, fortigateStatus, isSimulating, timestamp } = data;
 
-  // Simulator indicator
   if (isSimulating !== undefined) {
     el.chkSimulationToggle.checked = isSimulating;
     el.simModeBadge.textContent = isSimulating ? 'SIMULATOR ACTIVE' : 'REAL FORTIGATE';
     el.simModeBadge.style.background = isSimulating ? '#f59e0b' : '#10b981';
   }
 
-  // FortiGate Connection status
   if (fortigateStatus) {
     if (fortigateStatus.connected) {
       el.fgStatusBadge.className = 'badge fg-status active';
@@ -259,17 +250,9 @@ function updateDashboard(data) {
     }
   }
 
-  // Update WAN1
-  if (wan1) {
-    updateLinkCard('wan1', wan1);
-  }
+  if (wan1) updateLinkCard('wan1', wan1);
+  if (wan2) updateLinkCard('wan2', wan2);
 
-  // Update WAN2
-  if (wan2) {
-    updateLinkCard('wan2', wan2);
-  }
-
-  // Append to local history for chart rendering
   if (timestamp) {
     if (wan1) {
       telemetryHistory.push({
@@ -292,10 +275,8 @@ function updateDashboard(data) {
       });
     }
 
-    // Keep history trimmed to selected timeframe
     const cutoff = Date.now() - (currentHistoryMinutes * 60 * 1000);
     telemetryHistory = telemetryHistory.filter(h => h.timestamp >= cutoff);
-
     renderCharts();
   }
 }
@@ -318,7 +299,6 @@ function updateLinkCard(id, link) {
 
   const status = (link.status || 'HEALTHY').toUpperCase();
 
-  // Status Pill & Card Styling
   card.classList.remove('status-warning', 'status-critical');
   pill.classList.remove('status-healthy', 'status-warning', 'status-critical');
 
@@ -335,12 +315,10 @@ function updateLinkCard(id, link) {
     statusText.textContent = 'HEALTHY';
   }
 
-  // Values
   latency.textContent = link.status === 'down' ? 'DOWN' : `${link.latency.toFixed(1)} ms`;
   loss.textContent = `${link.packetLoss.toFixed(1)} %`;
   jitter.textContent = `${link.jitter.toFixed(1)} ms`;
 
-  // Value highlight colors
   if (link.packetLoss >= thresholds.packetLossCritical) {
     loss.style.color = 'var(--color-critical)';
   } else if (link.packetLoss >= thresholds.packetLossWarning) {
@@ -357,12 +335,10 @@ function updateLinkCard(id, link) {
     latency.style.color = 'var(--text-primary)';
   }
 
-  // Bandwidth
   const rxMb = ((link.rxKbps || 0) / 1024).toFixed(1);
   const txMb = ((link.txKbps || 0) / 1024).toFixed(1);
   bandwidth.textContent = `${rxMb} / ${txMb} Mb/s`;
 
-  // Carrier State
   if (link.linkState === 'down') {
     carrier.className = 'carrier-badge carrier-down';
     carrier.textContent = 'CARRIER DOWN';
@@ -371,7 +347,6 @@ function updateLinkCard(id, link) {
     carrier.textContent = 'CARRIER UP';
   }
 
-  // Issues Banner inside card
   if (link.issues && link.issues.length > 0) {
     issuesBox.classList.remove('hidden', 'warning-mode');
     if (status === 'WARNING') issuesBox.classList.add('warning-mode');
@@ -390,7 +365,6 @@ function updateLinkCard(id, link) {
 function handleIncomingAlert(alert) {
   playAlertSound(alert.severity);
 
-  // Show Banner
   el.globalAlertBanner.classList.remove('hidden');
   el.bannerTitle.textContent = alert.title;
   el.bannerDetails.textContent = alert.message;
@@ -409,7 +383,6 @@ function handleIncomingAlert(alert) {
     el.bannerTitle.style.color = 'var(--color-critical)';
   }
 
-  // Reload incident log
   setTimeout(loadIncidents, 1000);
 }
 
@@ -506,13 +479,11 @@ function drawChart(ctx, canvas, opts) {
   const now = Date.now();
   const startTime = now - (currentHistoryMinutes * 60 * 1000);
 
-  // Find dynamic Y max
   let maxVal = opts.yMaxDefault;
   for (const p of opts.w1Data) if (p[opts.valueKey] > maxVal) maxVal = p[opts.valueKey] * 1.15;
   for (const p of opts.w2Data) if (p[opts.valueKey] > maxVal) maxVal = p[opts.valueKey] * 1.15;
   if (opts.critVal && opts.critVal * 1.2 > maxVal) maxVal = opts.critVal * 1.2;
 
-  // Draw Grid & Y-Axis Labels
   ctx.strokeStyle = '#1f2a3f';
   ctx.lineWidth = 1;
   ctx.fillStyle = '#64748b';
@@ -532,7 +503,6 @@ function drawChart(ctx, canvas, opts) {
     ctx.fillText(`${Math.round(yVal)}${opts.unit}`, padding.left - 6, yPos + 3);
   }
 
-  // Draw Threshold Lines
   const drawThreshold = (val, color, label) => {
     if (val > maxVal) return;
     const yPos = padding.top + graphH - (val / maxVal) * graphH;
@@ -554,7 +524,6 @@ function drawChart(ctx, canvas, opts) {
   if (opts.warnVal) drawThreshold(opts.warnVal, '#f59e0b', 'WARN');
   if (opts.critVal) drawThreshold(opts.critVal, '#ef4444', 'CRIT');
 
-  // Draw Time Series Line for a link
   const drawLine = (data, strokeColor, fillColor) => {
     if (!data || data.length === 0) return;
 
@@ -577,7 +546,6 @@ function drawChart(ctx, canvas, opts) {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Fill under curve
     if (points.length > 1) {
       ctx.lineTo(points[points.length - 1].x, padding.top + graphH);
       ctx.lineTo(points[0].x, padding.top + graphH);
@@ -591,14 +559,10 @@ function drawChart(ctx, canvas, opts) {
     ctx.restore();
   };
 
-  // Draw WAN2 (Purple) then WAN1 (Cyan)
   drawLine(opts.w2Data, '#a855f7', 'rgba(168, 85, 247, 0.2)');
   drawLine(opts.w1Data, '#00f0ff', 'rgba(0, 240, 255, 0.2)');
 }
 
-/**
- * Auto-resize Canvas coordinate resolution for crisp HiDPI
- */
 function setupCanvasAutoResize() {
   const resize = () => {
     for (const canvas of [el.latencyChart, el.lossChart]) {
@@ -614,11 +578,7 @@ function setupCanvasAutoResize() {
   setTimeout(resize, 100);
 }
 
-/**
- * Setup Event Listeners
- */
 function setupEventListeners() {
-  // Audio toggle
   el.btnAudioToggle.addEventListener('click', () => {
     audioEnabled = !audioEnabled;
     el.audioIcon.textContent = audioEnabled ? '🔔' : '🔕';
@@ -627,12 +587,10 @@ function setupEventListeners() {
     if (audioEnabled) playAlertSound('HEALTHY');
   });
 
-  // Dismiss banner
   el.btnDismissBanner.addEventListener('click', () => {
     el.globalAlertBanner.classList.add('hidden');
   });
 
-  // Timeframe buttons
   document.querySelectorAll('.btn-time').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.btn-time').forEach(b => b.classList.remove('active'));
@@ -642,10 +600,8 @@ function setupEventListeners() {
     });
   });
 
-  // Refresh incidents
   el.btnRefreshIncidents.addEventListener('click', loadIncidents);
 
-  // Simulation switch toggle
   el.chkSimulationToggle.addEventListener('change', async (e) => {
     const enabled = e.target.checked;
     await fetch('/api/simulation', {
@@ -655,7 +611,6 @@ function setupEventListeners() {
     });
   });
 
-  // Tuning Guide modal
   el.btnOpenTuningGuide.addEventListener('click', () => {
     el.tuningGuideModal.classList.remove('hidden');
   });
@@ -666,24 +621,35 @@ function setupEventListeners() {
     el.tuningGuideModal.classList.add('hidden');
   });
 
-  // Settings modal
   el.btnOpenSettings.addEventListener('click', openSettingsModal);
   el.btnCloseSettings.addEventListener('click', () => el.settingsModal.classList.add('hidden'));
   el.btnCancelSettings.addEventListener('click', () => el.settingsModal.classList.add('hidden'));
   el.btnSaveSettings.addEventListener('click', saveSettings);
 
-  // Test FortiGate connection
   el.btnTestFgConnection.addEventListener('click', testFortiGateConnection);
 
-  // Test Notifications
   document.querySelectorAll('[data-test]').forEach(btn => {
     btn.addEventListener('click', () => testNotificationChannel(btn.dataset.test));
   });
+
+  // WhatsApp provider selector toggle
+  const waProviderSelect = document.getElementById('cfgWaProvider');
+  if (waProviderSelect) {
+    waProviderSelect.addEventListener('change', updateWhatsAppFieldsVisibility);
+  }
 }
 
-/**
- * Setup Simulation Buttons
- */
+function updateWhatsAppFieldsVisibility() {
+  const provider = document.getElementById('cfgWaProvider').value;
+  const cmbFields = document.getElementById('waCallmebotFields');
+  const twilioFields = document.getElementById('waTwilioFields');
+  const webhookFields = document.getElementById('waWebhookFields');
+
+  if (cmbFields) cmbFields.classList.toggle('hidden', provider !== 'callmebot');
+  if (twilioFields) twilioFields.classList.toggle('hidden', provider !== 'twilio');
+  if (webhookFields) webhookFields.classList.toggle('hidden', provider !== 'webhook');
+}
+
 function setupSimulationButtons() {
   el.simButtonsGroup.querySelectorAll('button').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -712,9 +678,6 @@ function setupSimulationButtons() {
   });
 }
 
-/**
- * Settings Tabs Logic
- */
 function setupSettingsTabs() {
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -726,40 +689,64 @@ function setupSettingsTabs() {
   });
 }
 
-/**
- * Open and populate Settings Modal
- */
 async function openSettingsModal() {
   try {
     const res = await fetch('/api/settings');
     const cfg = await res.json();
 
     // FortiGate
-    document.getElementById('cfgFgHost').value = cfg.fortigate.host || '';
-    document.getElementById('cfgFgToken').value = cfg.fortigate.apiToken || '';
-    document.getElementById('cfgFgWan1').value = cfg.fortigate.wan1Interface || 'wan1';
-    document.getElementById('cfgFgWan2').value = cfg.fortigate.wan2Interface || 'wan2';
-    document.getElementById('cfgFgHealthCheck').value = cfg.fortigate.healthCheckName || 'Default_DNS';
+    document.getElementById('cfgFgHost').value = cfg.fortigate?.host || '';
+    document.getElementById('cfgFgToken').value = cfg.fortigate?.apiToken || '';
+    document.getElementById('cfgFgWan1').value = cfg.fortigate?.wan1Interface || 'wan1';
+    document.getElementById('cfgFgWan2').value = cfg.fortigate?.wan2Interface || 'wan2';
+    document.getElementById('cfgFgHealthCheck').value = cfg.fortigate?.healthCheckName || 'Default_DNS';
 
     // Thresholds
-    document.getElementById('thLossWarn').value = cfg.thresholds.packetLossWarning ?? 2.0;
-    document.getElementById('thLossCrit').value = cfg.thresholds.packetLossCritical ?? 8.0;
-    document.getElementById('thLatWarn').value = cfg.thresholds.latencyWarningMs ?? 120;
-    document.getElementById('thLatCrit').value = cfg.thresholds.latencyCriticalMs ?? 250;
-    document.getElementById('thJitWarn').value = cfg.thresholds.jitterWarningMs ?? 25;
-    document.getElementById('thJitCrit').value = cfg.thresholds.jitterCriticalMs ?? 50;
-    document.getElementById('thConsecFails').value = cfg.thresholds.consecutiveFailsToAlert ?? 2;
-    document.getElementById('thConsecRecovery').value = cfg.thresholds.consecutiveHealthyToRecover ?? 4;
+    document.getElementById('thLossWarn').value = cfg.thresholds?.packetLossWarning ?? 2.0;
+    document.getElementById('thLossCrit').value = cfg.thresholds?.packetLossCritical ?? 8.0;
+    document.getElementById('thLatWarn').value = cfg.thresholds?.latencyWarningMs ?? 120;
+    document.getElementById('thLatCrit').value = cfg.thresholds?.latencyCriticalMs ?? 250;
+    document.getElementById('thJitWarn').value = cfg.thresholds?.jitterWarningMs ?? 25;
+    document.getElementById('thJitCrit').value = cfg.thresholds?.jitterCriticalMs ?? 50;
+    document.getElementById('thConsecFails').value = cfg.thresholds?.consecutiveFailsToAlert ?? 2;
+    document.getElementById('thConsecRecovery').value = cfg.thresholds?.consecutiveHealthyToRecover ?? 4;
 
-    // Notifications
-    document.getElementById('notifWinToast').checked = !!cfg.notifications.windowsToast?.enabled;
-    document.getElementById('notifTelegram').checked = !!cfg.notifications.telegram?.enabled;
-    document.getElementById('cfgTeleToken').value = cfg.notifications.telegram?.botToken || '';
-    document.getElementById('cfgTeleChatId').value = cfg.notifications.telegram?.chatId || '';
-    document.getElementById('notifDiscord').checked = !!cfg.notifications.discord?.enabled;
-    document.getElementById('cfgDiscordUrl').value = cfg.notifications.discord?.webhookUrl || '';
-    document.getElementById('notifSlack').checked = !!cfg.notifications.slack?.enabled;
-    document.getElementById('cfgSlackUrl').value = cfg.notifications.slack?.webhookUrl || '';
+    // Notifications: Windows Toast
+    document.getElementById('notifWinToast').checked = !!cfg.notifications?.windowsToast?.enabled;
+
+    // Notifications: Email (SMTP)
+    const em = cfg.notifications?.email || {};
+    document.getElementById('notifEmail').checked = !!em.enabled;
+    document.getElementById('cfgSmtpHost').value = em.host || '';
+    document.getElementById('cfgSmtpPort').value = em.port || 587;
+    document.getElementById('cfgSmtpUser').value = em.user || '';
+    document.getElementById('cfgSmtpPass').value = em.pass || '';
+    document.getElementById('cfgSmtpFrom').value = em.from || '';
+    document.getElementById('cfgSmtpTo').value = em.to || '';
+
+    // Notifications: WhatsApp
+    const wa = cfg.notifications?.whatsapp || {};
+    document.getElementById('notifWhatsapp').checked = !!wa.enabled;
+    document.getElementById('cfgWaProvider').value = wa.provider || 'callmebot';
+    document.getElementById('cfgWaPhone').value = wa.phone || '';
+    document.getElementById('cfgWaApiKey').value = wa.apiKey || '';
+    document.getElementById('cfgTwilioSid').value = wa.accountSid || '';
+    document.getElementById('cfgTwilioToken').value = wa.authToken || '';
+    document.getElementById('cfgTwilioFrom').value = wa.twilioFrom || '';
+    document.getElementById('cfgTwilioTo').value = wa.twilioTo || '';
+    document.getElementById('cfgWaWebhookUrl').value = wa.webhookUrl || '';
+    updateWhatsAppFieldsVisibility();
+
+    // Notifications: Telegram
+    document.getElementById('notifTelegram').checked = !!cfg.notifications?.telegram?.enabled;
+    document.getElementById('cfgTeleToken').value = cfg.notifications?.telegram?.botToken || '';
+    document.getElementById('cfgTeleChatId').value = cfg.notifications?.telegram?.chatId || '';
+
+    // Notifications: Discord & Slack
+    document.getElementById('notifDiscord').checked = !!cfg.notifications?.discord?.enabled;
+    document.getElementById('cfgDiscordUrl').value = cfg.notifications?.discord?.webhookUrl || '';
+    document.getElementById('notifSlack').checked = !!cfg.notifications?.slack?.enabled;
+    document.getElementById('cfgSlackUrl').value = cfg.notifications?.slack?.webhookUrl || '';
 
     el.settingsModal.classList.remove('hidden');
   } catch (err) {
@@ -767,9 +754,6 @@ async function openSettingsModal() {
   }
 }
 
-/**
- * Save Settings
- */
 async function saveSettings() {
   const payload = {
     fortigate: {
@@ -791,6 +775,26 @@ async function saveSettings() {
     },
     notifications: {
       windowsToast: { enabled: document.getElementById('notifWinToast').checked },
+      email: {
+        enabled: document.getElementById('notifEmail').checked,
+        host: document.getElementById('cfgSmtpHost').value,
+        port: parseInt(document.getElementById('cfgSmtpPort').value || '587', 10),
+        user: document.getElementById('cfgSmtpUser').value,
+        pass: document.getElementById('cfgSmtpPass').value,
+        from: document.getElementById('cfgSmtpFrom').value,
+        to: document.getElementById('cfgSmtpTo').value
+      },
+      whatsapp: {
+        enabled: document.getElementById('notifWhatsapp').checked,
+        provider: document.getElementById('cfgWaProvider').value,
+        phone: document.getElementById('cfgWaPhone').value,
+        apiKey: document.getElementById('cfgWaApiKey').value,
+        accountSid: document.getElementById('cfgTwilioSid').value,
+        authToken: document.getElementById('cfgTwilioToken').value,
+        twilioFrom: document.getElementById('cfgTwilioFrom').value,
+        twilioTo: document.getElementById('cfgTwilioTo').value,
+        webhookUrl: document.getElementById('cfgWaWebhookUrl').value
+      },
       telegram: {
         enabled: document.getElementById('notifTelegram').checked,
         botToken: document.getElementById('cfgTeleToken').value,
@@ -827,9 +831,6 @@ async function saveSettings() {
   }
 }
 
-/**
- * Test FortiGate Connection
- */
 async function testFortiGateConnection() {
   el.fgTestResult.textContent = 'Testing connection...';
   el.fgTestResult.style.color = 'var(--text-secondary)';
@@ -857,23 +858,46 @@ async function testFortiGateConnection() {
   }
 }
 
-/**
- * Test Notification Channel
- */
 async function testNotificationChannel(channel) {
   el.notifTestFeedback.textContent = `Sending test to ${channel}...`;
   el.notifTestFeedback.style.color = 'var(--text-secondary)';
+
+  let body = { channel };
+
+  if (channel === 'email') {
+    body.emailConfig = {
+      host: document.getElementById('cfgSmtpHost').value,
+      port: parseInt(document.getElementById('cfgSmtpPort').value || '587', 10),
+      user: document.getElementById('cfgSmtpUser').value,
+      pass: document.getElementById('cfgSmtpPass').value,
+      from: document.getElementById('cfgSmtpFrom').value,
+      to: document.getElementById('cfgSmtpTo').value
+    };
+  } else if (channel === 'whatsapp') {
+    body.whatsappConfig = {
+      provider: document.getElementById('cfgWaProvider').value,
+      phone: document.getElementById('cfgWaPhone').value,
+      apiKey: document.getElementById('cfgWaApiKey').value,
+      accountSid: document.getElementById('cfgTwilioSid').value,
+      authToken: document.getElementById('cfgTwilioToken').value,
+      twilioFrom: document.getElementById('cfgTwilioFrom').value,
+      twilioTo: document.getElementById('cfgTwilioTo').value,
+      webhookUrl: document.getElementById('cfgWaWebhookUrl').value
+    };
+  } else if (channel === 'telegram') {
+    body.botToken = document.getElementById('cfgTeleToken').value;
+    body.chatId = document.getElementById('cfgTeleChatId').value;
+  } else if (channel === 'discord') {
+    body.webhookUrl = document.getElementById('cfgDiscordUrl').value;
+  } else if (channel === 'slack') {
+    body.webhookUrl = document.getElementById('cfgSlackUrl').value;
+  }
 
   try {
     const res = await fetch('/api/test-alert', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        channel,
-        botToken: document.getElementById('cfgTeleToken').value,
-        chatId: document.getElementById('cfgTeleChatId').value,
-        webhookUrl: channel === 'discord' ? document.getElementById('cfgDiscordUrl').value : document.getElementById('cfgSlackUrl').value
-      })
+      body: JSON.stringify(body)
     });
     const result = await res.json();
     if (result.success) {
@@ -889,5 +913,4 @@ async function testNotificationChannel(channel) {
   }
 }
 
-// Start on DOM ready
 document.addEventListener('DOMContentLoaded', init);

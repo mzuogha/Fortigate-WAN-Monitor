@@ -95,11 +95,9 @@ async function pollCycle() {
     let metrics = null;
 
     if (appConfig.simulation.enabled) {
-      // 1. Simulation Mode active
       metrics = probeEngine.getSimulatedMetrics();
       currentState.isSimulating = true;
     } else if (appConfig.fortigate.enabled && appConfig.fortigate.apiToken) {
-      // 2. Real FortiGate SD-WAN SLA REST API
       currentState.isSimulating = false;
       const fgSla = await fortigateClient.getSlaMetrics();
 
@@ -119,7 +117,6 @@ async function pollCycle() {
     // Fallback if real query failed or returned null for a link
     if (!metrics || (!metrics.wan1 && !metrics.wan2)) {
       if (!appConfig.simulation.enabled && (!appConfig.fortigate.apiToken || !currentState.fortigateStatus.connected)) {
-        // Run fallback local ping probe to verify connectivity
         const p8 = await probeEngine.pingTarget('8.8.8.8', 2);
         const p1 = await probeEngine.pingTarget('1.1.1.1', 2);
         metrics = {
@@ -152,13 +149,10 @@ async function pollCycle() {
       sample.timestamp = now;
       sample.linkId = linkId;
 
-      // Save to SQLite
       db.saveMetric(sample);
 
-      // Evaluate degradation and trigger alerts
       const evalResult = alertManager.evaluateMetric(linkId, sample);
 
-      // Update current state cache
       currentState[linkId] = {
         ...currentState[linkId],
         latency: sample.latency,
@@ -174,7 +168,6 @@ async function pollCycle() {
       };
     }
 
-    // Broadcast update to all connected dashboard SSE clients
     broadcastSse('metrics', {
       wan1: currentState.wan1,
       wan2: currentState.wan2,
@@ -234,7 +227,6 @@ const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = parsedUrl.pathname;
 
-  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -302,13 +294,21 @@ const server = http.createServer(async (req, res) => {
   // 5. Settings: GET & POST /api/settings
   if (pathname === '/api/settings') {
     if (req.method === 'GET') {
-      // Mask sensitive tokens for safe display
       const safeConfig = JSON.parse(JSON.stringify(appConfig));
-      if (safeConfig.fortigate.apiToken) {
+      if (safeConfig.fortigate?.apiToken) {
         safeConfig.fortigate.hasToken = true;
         safeConfig.fortigate.apiToken = '••••••••' + safeConfig.fortigate.apiToken.slice(-4);
       }
-      if (safeConfig.notifications.telegram.botToken) {
+      if (safeConfig.notifications?.email?.pass) {
+        safeConfig.notifications.email.pass = '••••••••';
+      }
+      if (safeConfig.notifications?.whatsapp?.apiKey) {
+        safeConfig.notifications.whatsapp.apiKey = '••••••••';
+      }
+      if (safeConfig.notifications?.whatsapp?.authToken) {
+        safeConfig.notifications.whatsapp.authToken = '••••••••';
+      }
+      if (safeConfig.notifications?.telegram?.botToken) {
         safeConfig.notifications.telegram.botToken = '••••••••';
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -323,6 +323,22 @@ const server = http.createServer(async (req, res) => {
         db.setSetting('thresholds', appConfig.thresholds);
       }
       if (body.notifications) {
+        // Retain masked passwords if user did not re-type them
+        if (body.notifications.email && body.notifications.email.pass?.startsWith('••••')) {
+          body.notifications.email.pass = appConfig.notifications.email?.pass;
+        }
+        if (body.notifications.whatsapp) {
+          if (body.notifications.whatsapp.apiKey?.startsWith('••••')) {
+            body.notifications.whatsapp.apiKey = appConfig.notifications.whatsapp?.apiKey;
+          }
+          if (body.notifications.whatsapp.authToken?.startsWith('••••')) {
+            body.notifications.whatsapp.authToken = appConfig.notifications.whatsapp?.authToken;
+          }
+        }
+        if (body.notifications.telegram && body.notifications.telegram.botToken?.startsWith('••••')) {
+          body.notifications.telegram.botToken = appConfig.notifications.telegram?.botToken;
+        }
+
         appConfig.notifications = { ...appConfig.notifications, ...body.notifications };
         db.setSetting('notifications', appConfig.notifications);
       }
@@ -363,6 +379,16 @@ const server = http.createServer(async (req, res) => {
     try {
       if (channel === 'windowsToast') {
         await alertManager.sendWindowsToast(testAlert.title, testAlert.message);
+      } else if (channel === 'email') {
+        if (body.emailConfig) {
+          alertManager.smtpClient.updateConfig(body.emailConfig);
+        }
+        await alertManager.sendEmailAlert(testAlert);
+      } else if (channel === 'whatsapp') {
+        if (body.whatsappConfig) {
+          alertManager.whatsAppClient.updateConfig(body.whatsappConfig);
+        }
+        await alertManager.sendWhatsAppAlert(testAlert);
       } else if (channel === 'telegram') {
         const token = body.botToken || appConfig.notifications.telegram.botToken;
         const chatId = body.chatId || appConfig.notifications.telegram.chatId;
@@ -406,7 +432,6 @@ const server = http.createServer(async (req, res) => {
   }
 
   // 8. FortiGate Webhook Receiver: POST /api/webhook/fortigate
-  // (Triggered by FortiGate Automation Stitches on SD-WAN SLA violations)
   if (pathname === '/api/webhook/fortigate' && req.method === 'POST') {
     try {
       const body = await parseJsonBody(req);
@@ -416,7 +441,6 @@ const server = http.createServer(async (req, res) => {
       let detectedLink = 'wan1';
       if (logMsg.toLowerCase().includes('wan2')) detectedLink = 'wan2';
 
-      // Immediate degradation notification
       alertManager.sendAlert({
         type: 'FORTIGATE_WEBHOOK_EVENT',
         linkId: detectedLink,
@@ -452,8 +476,7 @@ const server = http.createServer(async (req, res) => {
 
   // --- Static Files Serving ---
   let filePath = path.join(__dirname, 'public', pathname === '/' ? 'index.html' : pathname);
-  
-  // Security check: prevent directory traversal
+
   const publicDir = path.join(__dirname, 'public');
   if (!filePath.startsWith(publicDir)) {
     res.writeHead(403);
@@ -463,7 +486,6 @@ const server = http.createServer(async (req, res) => {
 
   fs.stat(filePath, (err, stats) => {
     if (err || !stats.isFile()) {
-      // Fallback to index.html for SPA routing if requested
       filePath = path.join(publicDir, 'index.html');
     }
 
@@ -487,7 +509,7 @@ function parseJsonBody(req) {
     let body = '';
     req.on('data', chunk => {
       body += chunk;
-      if (body.length > 1e6) { // 1MB limit
+      if (body.length > 1e6) {
         req.destroy();
         reject(new Error('Payload too large'));
       }

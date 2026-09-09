@@ -7,11 +7,18 @@ const { execFile } = require('node:child_process');
 const https = require('node:https');
 const http = require('node:http');
 
+const SmtpClient = require('./smtp-client');
+const WhatsAppClient = require('./whatsapp-client');
+
 class AlertManager {
   constructor({ config, db, eventEmitter }) {
     this.config = config;
     this.db = db;
     this.eventEmitter = eventEmitter;
+
+    // Clients
+    this.smtpClient = new SmtpClient(config.notifications?.email || {});
+    this.whatsAppClient = new WhatsAppClient(config.notifications?.whatsapp || {});
 
     // Link state tracking
     this.states = {
@@ -42,6 +49,12 @@ class AlertManager {
     }
     if (newConfig.notifications) {
       this.config.notifications = { ...this.config.notifications, ...newConfig.notifications };
+      if (newConfig.notifications.email) {
+        this.smtpClient.updateConfig(newConfig.notifications.email);
+      }
+      if (newConfig.notifications.whatsapp) {
+        this.whatsAppClient.updateConfig(newConfig.notifications.whatsapp);
+      }
     }
   }
 
@@ -147,7 +160,6 @@ class AlertManager {
           state.lastStateChange = now;
           state.flaps.push(now);
 
-          // Check for flapping warning
           const isFlapping = state.flaps.length >= th.flapThresholdCount;
           if (isFlapping) {
             issues.push(`⚠️ Flapping detected (${state.flaps.length} state changes in ${Math.round(th.flapWindowSeconds / 60)}m)`);
@@ -181,7 +193,6 @@ class AlertManager {
 
           state.lastAlertStatus = sampleStatus;
         } else if (state.activeIncidentId) {
-          // Update peaks
           this.db.updateIncidentPeak(state.activeIncidentId, sample.latency, sample.packetLoss);
         }
       }
@@ -207,7 +218,7 @@ class AlertManager {
 
     console.log(`[ALERT] [${alert.severity}] ${alert.title}: ${alert.message}`);
 
-    const notif = this.config.notifications;
+    const notif = this.config.notifications || {};
 
     // 2. Windows Native Desktop Toast Notification
     if (notif.windowsToast?.enabled) {
@@ -216,26 +227,98 @@ class AlertManager {
       });
     }
 
-    // 3. Telegram Alert
+    // 3. Email Alert (SMTP)
+    if (notif.email?.enabled && notif.email.host && notif.email.to) {
+      this.sendEmailAlert(alert).catch(err => {
+        console.error(`[Email Alert Error]: ${err.message}`);
+      });
+    }
+
+    // 4. WhatsApp Alert
+    if (notif.whatsapp?.enabled) {
+      this.sendWhatsAppAlert(alert).catch(err => {
+        console.error(`[WhatsApp Alert Error]: ${err.message}`);
+      });
+    }
+
+    // 5. Telegram Alert
     if (notif.telegram?.enabled && notif.telegram.botToken && notif.telegram.chatId) {
       this.sendTelegramAlert(notif.telegram, alert).catch(err => {
         console.error(`[Telegram Error]: ${err.message}`);
       });
     }
 
-    // 4. Discord Webhook
+    // 6. Discord Webhook
     if (notif.discord?.enabled && notif.discord.webhookUrl) {
       this.sendDiscordAlert(notif.discord.webhookUrl, alert).catch(err => {
         console.error(`[Discord Error]: ${err.message}`);
       });
     }
 
-    // 5. Slack / Teams Webhook
+    // 7. Slack / Teams Webhook
     if (notif.slack?.enabled && notif.slack.webhookUrl) {
       this.sendSlackAlert(notif.slack.webhookUrl, alert).catch(err => {
         console.error(`[Slack Error]: ${err.message}`);
       });
     }
+  }
+
+  /**
+   * Email Dispatcher via native SMTP
+   */
+  async sendEmailAlert(alert) {
+    const isCrit = alert.severity === 'CRITICAL';
+    const isRec = alert.severity === 'RECOVERED';
+    const color = isCrit ? '#ef4444' : (isRec ? '#10b981' : '#f59e0b');
+    const badgeBg = isCrit ? '#fee2e2' : (isRec ? '#d1fae5' : '#fef3c7');
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+        <div style="background-color: ${color}; color: white; padding: 18px 24px;">
+          <h2 style="margin: 0; font-size: 1.25rem;">FortiGate WAN Alert: ${alert.severity}</h2>
+          <p style="margin: 4px 0 0; opacity: 0.9; font-size: 0.9rem;">${alert.title}</p>
+        </div>
+        <div style="padding: 24px; background-color: #ffffff; color: #1e293b;">
+          <p style="font-size: 1rem; line-height: 1.5; margin-top: 0;"><strong>Details:</strong> ${alert.message}</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 0.9rem;">
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; color: #64748b;">Link Identifier:</td><td style="padding: 8px 0; font-weight: bold;">${alert.linkId.toUpperCase()}</td></tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; color: #64748b;">Severity Level:</td><td style="padding: 8px 0;"><span style="background: ${badgeBg}; color: ${color}; padding: 2px 8px; border-radius: 4px; font-weight: bold;">${alert.severity}</span></td></tr>
+            ${alert.sample ? `
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; color: #64748b;">Latency (RTT):</td><td style="padding: 8px 0; font-weight: bold;">${alert.sample.latency} ms</td></tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; color: #64748b;">Packet Loss:</td><td style="padding: 8px 0; font-weight: bold;">${alert.sample.packetLoss} %</td></tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; color: #64748b;">Jitter:</td><td style="padding: 8px 0; font-weight: bold;">${alert.sample.jitter} ms</td></tr>
+            ` : ''}
+            <tr><td style="padding: 8px 0; color: #64748b;">Timestamp:</td><td style="padding: 8px 0;">${new Date().toLocaleString()}</td></tr>
+          </table>
+          <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 0;">Automated notification from FortiGate Dual-WAN Link Monitor & Failover Guard.</p>
+        </div>
+      </div>
+    `;
+
+    const text = `[${alert.severity}] ${alert.title}\n\nDetails: ${alert.message}\nLink: ${alert.linkId.toUpperCase()}\n` +
+      (alert.sample ? `Metrics: Latency ${alert.sample.latency}ms | Loss ${alert.sample.packetLoss}% | Jitter ${alert.sample.jitter}ms\n` : '') +
+      `Timestamp: ${new Date().toLocaleString()}`;
+
+    return this.smtpClient.sendMail({
+      subject: alert.title,
+      html,
+      text
+    });
+  }
+
+  /**
+   * WhatsApp Dispatcher
+   */
+  async sendWhatsAppAlert(alert) {
+    const icon = alert.severity === 'CRITICAL' ? '🚨' : alert.severity === 'WARNING' ? '⚠️' : '✅';
+    const message = `${icon} *${alert.title}*\n\n` +
+      `*Link:* ${alert.linkId.toUpperCase()}\n` +
+      `*Status:* ${alert.severity}\n` +
+      `*Details:* ${alert.message}\n` +
+      (alert.sample ? `*Metrics:* ${alert.sample.latency}ms lat | ${alert.sample.packetLoss}% loss | ${alert.sample.jitter}ms jit\n` : '') +
+      `*Time:* ${new Date().toLocaleTimeString()}`;
+
+    return this.whatsAppClient.sendMessage(message);
   }
 
   /**
@@ -261,10 +344,7 @@ class AlertManager {
       execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript], {
         timeout: 4000
       }, (err) => {
-        if (err) {
-          // Non-fatal, some systems have notifications disabled
-          console.warn(`Windows Toast notice: ${err.message}`);
-        }
+        if (err) console.warn(`Windows Toast notice: ${err.message}`);
         resolve();
       });
     });
@@ -329,7 +409,7 @@ class AlertManager {
   }
 
   /**
-   * Helper to POST JSON payload via HTTPS/HTTP
+   * Helper to POST JSON payload
    */
   postJson(urlStr, data) {
     return new Promise((resolve, reject) => {
