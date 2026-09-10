@@ -2,7 +2,8 @@
 # Run this in PowerShell as Administrator on the target Windows Server
 
 param(
-    [string]$Port = "4000"
+    # Optional. When given, the monitor is switched to this port (same as Settings > Server).
+    [int]$Port = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,8 +43,31 @@ if (-not $nodeCmd) {
 $nodePath = (Get-Command "node").Source
 Write-Host "[OK] Detected Node.js at: $nodePath" -ForegroundColor Green
 
-# 2. Configure Windows Firewall Inbound Rule for Port 4000
+# Node.js 22.13+ is required for the built-in SQLite module
+$nodeVersion = [version]((& $nodePath --version).TrimStart('v'))
+if ($nodeVersion -lt [version]"22.13.0") {
+    Write-Host "[ERROR] Node.js $nodeVersion is too old. Install Node.js 22.13 or newer (24 LTS recommended)." -ForegroundColor Red
+    Exit 1
+}
+
+# Apply the requested port, or read the port the monitor is configured to use.
+# Node may print warnings on stderr, which Windows PowerShell 5.1 would treat as fatal.
+$env:NODE_NO_WARNINGS = "1"
+$previousEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+if ($Port -gt 0) {
+    & $nodePath (Join-Path $appDir "server.js") --set-port $Port | Out-Host
+} else {
+    $configured = & $nodePath (Join-Path $appDir "server.js") --get-port 2>$null
+    if ($configured -match '^\d+$') { $Port = [int]$configured } else { $Port = 4000 }
+}
+$ErrorActionPreference = $previousEap
+Write-Host "[OK] Monitor will listen on port $Port" -ForegroundColor Green
+
+# 2. Configure Windows Firewall inbound rule for the monitor's port (replacing rules for old ports)
 $firewallRuleName = "FortiGate WAN Monitor (Port $Port)"
+Get-NetFirewallRule -DisplayName "FortiGate WAN Monitor (Port *)" -ErrorAction SilentlyContinue |
+    Where-Object { $_.DisplayName -ne $firewallRuleName } | Remove-NetFirewallRule
 $existingRule = Get-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction SilentlyContinue
 
 if (-not $existingRule) {
@@ -89,5 +113,7 @@ Write-Host "[OK] Service started successfully!" -ForegroundColor Green
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Service is running 24/7 in the background." -ForegroundColor Green
-Write-Host "Access dashboard at: http://localhost:$Port or http://<server-ip>:$Port" -ForegroundColor Cyan
+Write-Host "Access dashboard at: http://localhost:$Port" -ForegroundColor Cyan
+Write-Host "Remote access (http://<server-ip>:$Port) requires a password:  node server.js --set-password" -ForegroundColor Yellow
+Write-Host "Setup guide: http://localhost:$Port/help.html" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan

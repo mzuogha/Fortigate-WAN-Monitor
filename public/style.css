@@ -901,3 +901,109 @@ small {
 .hidden {
   display: none !important;
 }
+
+/* ------------------------------------------------------------------ v2 additions */
+
+/* Links styled as buttons (Help) */
+a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+
+/* Link with no data yet / FortiGate unreachable */
+.wan-card.status-unknown { border-color: var(--border-strong); opacity: 0.85; }
+.status-unknown {
+  background: rgba(100, 116, 139, 0.15);
+  border: 1px solid var(--text-muted);
+  color: var(--text-secondary);
+}
+.status-unknown .pill-dot { background: var(--text-muted); }
+
+/* Settings: link to help, webhook field, security note */
+.help-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: rgba(0, 240, 255, 0.07);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.help-callout strong { color: var(--text-primary); }
+.input-with-button { display: flex; gap: 8px; align-items: center; }
+.input-with-button .form-control { flex: 1; }
+.security-note { margin-top: 14px; font-size: 0.8rem; color: var(--text-muted); }
+
+/* Reports modal */
+.report-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 10px; }
+.report-hint { font-size: 0.8rem; color: var(--text-muted); margin: 6px 0 10px; }
+.report-content { margin-top: 12px; }
+.report-headline {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  padding: 12px 14px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.report-kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.report-kpi {
+  flex: 1 1 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.report-kpi strong { font-size: 1.3rem; color: var(--text-primary); font-family: var(--font-mono); }
+.report-kpi.good strong { color: var(--color-healthy); }
+.report-kpi.bad strong { color: var(--color-critical); }
+.avail { font-weight: 700; font-family: var(--font-mono); }
+.avail.good { color: var(--color-healthy); }
+.avail.warn { color: var(--color-warning); }
+.avail.bad { color: var(--color-critical); }
+
+/* ------------------------------------------------------------------ Help page */
+.help-layout { display: grid; grid-template-columns: 230px 1fr; gap: 28px; max-width: 1200px; margin: 24px auto; padding: 0 20px; }
+.help-nav { position: sticky; top: 90px; align-self: start; display: flex; flex-direction: column; gap: 4px;
+  background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px; }
+.help-nav strong { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 6px; }
+.help-nav a { color: var(--text-secondary); text-decoration: none; padding: 6px 8px; border-radius: 6px; font-size: 0.88rem; }
+.help-nav a:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+.help-content { min-width: 0; }
+.help-section { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 10px;
+  padding: 22px 26px; margin-bottom: 20px; scroll-margin-top: 90px; line-height: 1.6; }
+.help-section:target { border-color: var(--color-wan1); box-shadow: 0 0 0 1px var(--color-wan1); }
+.help-section h1 { font-size: 1.35rem; margin-bottom: 12px; }
+.help-section h3 { font-size: 1rem; margin: 18px 0 8px; color: var(--text-primary); }
+.help-section p { color: var(--text-secondary); margin-bottom: 10px; font-size: 0.92rem; }
+.help-section ol, .help-section ul { color: var(--text-secondary); font-size: 0.92rem; margin: 6px 0 10px 20px; }
+.help-section li { margin-bottom: 6px; }
+.help-section code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-surface-elevated); padding: 1px 5px; border-radius: 4px; color: var(--color-wan1); }
+.help-section pre code { background: none; padding: 0; color: inherit; }
+.help-section pre { background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px;
+  overflow-x: auto; font-size: 0.82rem; margin: 8px 0 12px; color: #cbd5e1; line-height: 1.45; }
+.help-section .guide-step { margin-top: 14px; }
+.help-section a { color: var(--color-wan1); }
+.help-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; margin: 8px 0 14px; }
+.help-table th { text-align: left; color: var(--text-muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border-strong); }
+.help-table td { padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); vertical-align: top; }
+.checklist { list-style: none; margin-left: 0 !important; }
+.checklist li { position: relative; padding-left: 22px; }
+.checklist li::before { content: '✓'; position: absolute; left: 0; color: var(--color-healthy); font-weight: 700; }
+.pill-inline { font-size: 0.72rem; font-weight: 700; padding: 1px 7px; border-radius: 10px; border: 1px solid; }
+.pill-inline.ok { color: var(--color-healthy); } .pill-inline.warn { color: var(--color-warning); } .pill-inline.crit { color: var(--color-critical); }
+.muted { color: var(--text-muted) !important; font-size: 0.82rem !important; }
+.setup-status { padding: 12px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 0.9rem;
+  background: var(--bg-surface-elevated); border: 1px solid var(--border-strong); color: var(--text-secondary); }
+.setup-status.ok { border-color: var(--color-healthy); color: var(--color-healthy); }
+.setup-status.warn { border-color: var(--color-warning); color: var(--color-warning); }
+.setup-status.bad { border-color: var(--color-critical); color: var(--color-critical); }
+@media (max-width: 860px) { .help-layout { grid-template-columns: 1fr; } .help-nav { position: static; } }

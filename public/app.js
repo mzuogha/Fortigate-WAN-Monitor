@@ -9,6 +9,7 @@ let audioEnabled = true;
 let currentHistoryMinutes = 15;
 let telemetryHistory = [];
 let audioContext = null;
+let linkLabels = {};
 
 // Threshold values for chart reference lines
 let thresholds = {
@@ -71,10 +72,12 @@ const el = {
   btnRefreshIncidents: document.getElementById('btnRefreshIncidents'),
 
   // Modals
-  tuningGuideModal: document.getElementById('tuningGuideModal'),
-  btnOpenTuningGuide: document.getElementById('btnOpenTuningGuide'),
-  btnCloseTuningGuide: document.getElementById('btnCloseTuningGuide'),
-  btnDismissTuning: document.getElementById('btnDismissTuning'),
+  reportsModal: document.getElementById('reportsModal'),
+  btnOpenReports: document.getElementById('btnOpenReports'),
+  btnCloseReports: document.getElementById('btnCloseReports'),
+  reportDate: document.getElementById('reportDate'),
+  reportContent: document.getElementById('reportContent'),
+  reportFeedback: document.getElementById('reportFeedback'),
 
   settingsModal: document.getElementById('settingsModal'),
   btnOpenSettings: document.getElementById('btnOpenSettings'),
@@ -189,6 +192,7 @@ function connectSse() {
 async function loadInitialStatus() {
   try {
     const res = await fetch('/api/status');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     updateDashboard(data);
   } catch (err) {
@@ -230,6 +234,7 @@ function updateDashboard(data) {
   if (!data) return;
 
   const { wan1, wan2, fortigateStatus, isSimulating, timestamp } = data;
+  if (data.thresholds) thresholds = { ...thresholds, ...data.thresholds };
 
   if (isSimulating !== undefined) {
     el.chkSimulationToggle.checked = isSimulating;
@@ -238,23 +243,28 @@ function updateDashboard(data) {
   }
 
   if (fortigateStatus) {
-    if (fortigateStatus.connected) {
-      el.fgStatusBadge.className = 'badge fg-status active';
-      el.fgStatusText.textContent = `FortiGate: Online (${fortigateStatus.hostname || 'Active'})`;
-    } else if (isSimulating) {
+    if (isSimulating) {
       el.fgStatusBadge.className = 'badge fg-status';
       el.fgStatusText.textContent = 'FortiGate: Simulating';
+      el.fgStatusBadge.title = 'Simulation mode generates fake data. Turn it off to monitor the real FortiGate.';
+    } else if (fortigateStatus.connected) {
+      el.fgStatusBadge.className = 'badge fg-status active';
+      el.fgStatusText.textContent = `FortiGate: Online (${fortigateStatus.hostname || 'Active'})`;
+      el.fgStatusBadge.title = fortigateStatus.version || '';
     } else {
       el.fgStatusBadge.className = 'badge fg-status error';
       el.fgStatusText.textContent = 'FortiGate: Disconnected';
+      el.fgStatusBadge.title = fortigateStatus.lastError || '';
     }
   }
 
-  if (wan1) updateLinkCard('wan1', wan1);
-  if (wan2) updateLinkCard('wan2', wan2);
+  if (wan1) { linkLabels.wan1 = wan1.label; updateLinkCard('wan1', wan1); }
+  if (wan2) { linkLabels.wan2 = wan2.label; updateLinkCard('wan2', wan2); }
+  if (wan1?.label) document.getElementById('legendWan1').textContent = wan1.label;
+  if (wan2?.label) document.getElementById('legendWan2').textContent = wan2.label;
 
   if (timestamp) {
-    if (wan1) {
+    if (wan1 && wan1.status !== 'UNKNOWN' && !wan1.stale) {
       telemetryHistory.push({
         timestamp,
         link_id: 'wan1',
@@ -264,7 +274,7 @@ function updateDashboard(data) {
         status: wan1.status
       });
     }
-    if (wan2) {
+    if (wan2 && wan2.status !== 'UNKNOWN' && !wan2.stale) {
       telemetryHistory.push({
         timestamp,
         link_id: 'wan2',
@@ -297,66 +307,84 @@ function updateLinkCard(id, link) {
   const carrier = isWan1 ? el.wan1CarrierBadge : el.wan2CarrierBadge;
   const lastSync = isWan1 ? el.wan1LastSync : el.wan2LastSync;
 
-  const status = (link.status || 'HEALTHY').toUpperCase();
+  const status = (link.status || 'UNKNOWN').toUpperCase();
+  const fmt = (v, unit, digits = 1) => (v === null || v === undefined ? '--' : `${Number(v).toFixed(digits)} ${unit}`);
 
-  card.classList.remove('status-warning', 'status-critical');
-  pill.classList.remove('status-healthy', 'status-warning', 'status-critical');
+  const nameEl = document.getElementById(`${id}Name`);
+  if (nameEl && link.label) nameEl.textContent = link.label;
+  const ifEl = document.getElementById(`${id}IfName`);
+  if (ifEl) {
+    ifEl.textContent = `Interface: ${link.interface || id}` + (link.healthCheck ? ` · SLA: ${link.healthCheck}` : '');
+  }
+
+  card.classList.remove('status-warning', 'status-critical', 'status-unknown');
+  pill.classList.remove('status-healthy', 'status-warning', 'status-critical', 'status-unknown');
 
   if (status === 'CRITICAL' || status === 'DOWN') {
     card.classList.add('status-critical');
     pill.classList.add('status-critical');
-    statusText.textContent = link.linkState === 'down' ? 'DOWN' : 'CRITICAL';
+    statusText.textContent = status === 'DOWN' ? 'DOWN' : 'CRITICAL';
   } else if (status === 'WARNING' || status === 'DEGRADED') {
     card.classList.add('status-warning');
     pill.classList.add('status-warning');
     statusText.textContent = 'DEGRADED';
+  } else if (status === 'UNKNOWN') {
+    card.classList.add('status-unknown');
+    pill.classList.add('status-unknown');
+    statusText.textContent = 'NO DATA';
   } else {
     pill.classList.add('status-healthy');
-    statusText.textContent = 'HEALTHY';
+    statusText.textContent = link.stale ? 'HEALTHY (STALE)' : 'HEALTHY';
   }
 
-  latency.textContent = link.status === 'down' ? 'DOWN' : `${link.latency.toFixed(1)} ms`;
-  loss.textContent = `${link.packetLoss.toFixed(1)} %`;
-  jitter.textContent = `${link.jitter.toFixed(1)} ms`;
+  latency.textContent = status === 'DOWN' ? 'DOWN' : fmt(link.latency, 'ms');
+  loss.textContent = fmt(link.packetLoss, '%');
+  jitter.textContent = fmt(link.jitter, 'ms');
 
-  if (link.packetLoss >= thresholds.packetLossCritical) {
-    loss.style.color = 'var(--color-critical)';
-  } else if (link.packetLoss >= thresholds.packetLossWarning) {
-    loss.style.color = 'var(--color-warning)';
+  const colorFor = (v, warn, crit) => (v === null || v === undefined ? 'var(--text-primary)'
+    : v >= crit ? 'var(--color-critical)' : v >= warn ? 'var(--color-warning)' : 'var(--text-primary)');
+  loss.style.color = colorFor(link.packetLoss, thresholds.packetLossWarning, thresholds.packetLossCritical);
+  latency.style.color = colorFor(link.latency, thresholds.latencyWarningMs, thresholds.latencyCriticalMs);
+  jitter.style.color = colorFor(link.jitter, thresholds.jitterWarningMs, thresholds.jitterCriticalMs);
+
+  const latSub = document.getElementById(`${id}LatencySub`);
+  if (latSub) latSub.textContent = `Target < ${thresholds.latencyWarningMs}ms`;
+  const lossSub = document.getElementById(`${id}LossSub`);
+  if (lossSub) lossSub.textContent = `Target < ${thresholds.packetLossWarning}%`;
+
+  if (link.rxKbps === null || link.rxKbps === undefined) {
+    bandwidth.textContent = '-- Mb/s';
   } else {
-    loss.style.color = 'var(--text-primary)';
+    bandwidth.textContent = `${(link.rxKbps / 1000).toFixed(1)} / ${((link.txKbps || 0) / 1000).toFixed(1)} Mb/s`;
   }
-
-  if (link.latency >= thresholds.latencyCriticalMs) {
-    latency.style.color = 'var(--color-critical)';
-  } else if (link.latency >= thresholds.latencyWarningMs) {
-    latency.style.color = 'var(--color-warning)';
-  } else {
-    latency.style.color = 'var(--text-primary)';
-  }
-
-  const rxMb = ((link.rxKbps || 0) / 1024).toFixed(1);
-  const txMb = ((link.txKbps || 0) / 1024).toFixed(1);
-  bandwidth.textContent = `${rxMb} / ${txMb} Mb/s`;
 
   if (link.linkState === 'down') {
     carrier.className = 'carrier-badge carrier-down';
     carrier.textContent = 'CARRIER DOWN';
-  } else {
+  } else if (link.linkState === 'no-traffic') {
+    carrier.className = 'carrier-badge carrier-down';
+    carrier.textContent = 'UP, NO TRAFFIC';
+  } else if (link.linkState === 'up') {
     carrier.className = 'carrier-badge carrier-up';
     carrier.textContent = 'CARRIER UP';
+  } else {
+    carrier.className = 'carrier-badge';
+    carrier.textContent = 'UNKNOWN';
   }
 
-  if (link.issues && link.issues.length > 0) {
+  const notes = [...(link.issues || [])];
+  if (link.reason && (status === 'UNKNOWN' || link.stale)) notes.unshift(link.reason);
+  if (notes.length > 0) {
     issuesBox.classList.remove('hidden', 'warning-mode');
-    if (status === 'WARNING') issuesBox.classList.add('warning-mode');
-    issuesBox.innerHTML = `<strong>⚠️ Issues Detected:</strong>${link.issues.map(i => `<div>• ${i}</div>`).join('')}`;
+    if (status === 'WARNING' || status === 'UNKNOWN') issuesBox.classList.add('warning-mode');
+    const heading = status === 'UNKNOWN' || link.stale ? 'ℹ️ Monitoring note:' : '⚠️ Issues Detected:';
+    issuesBox.innerHTML = `<strong>${heading}</strong>${notes.map(i => `<div>• ${escapeHtml(i)}</div>`).join('')}`;
   } else {
     issuesBox.classList.add('hidden');
     issuesBox.innerHTML = '';
   }
 
-  lastSync.textContent = `Updated: ${new Date(link.lastUpdate || Date.now()).toLocaleTimeString()}`;
+  lastSync.textContent = link.lastUpdate ? `Updated: ${new Date(link.lastUpdate).toLocaleTimeString()}` : 'Waiting for data';
 }
 
 /**
@@ -373,7 +401,7 @@ function handleIncomingAlert(alert) {
     el.globalAlertBanner.style.borderColor = 'var(--color-healthy)';
     el.globalAlertBanner.style.background = 'rgba(16, 185, 129, 0.15)';
     el.bannerTitle.style.color = 'var(--color-healthy)';
-  } else if (alert.severity === 'WARNING') {
+  } else if (alert.severity === 'WARNING' || alert.localOnly) {
     el.globalAlertBanner.style.borderColor = 'var(--color-warning)';
     el.globalAlertBanner.style.background = 'rgba(245, 158, 11, 0.15)';
     el.bannerTitle.style.color = 'var(--color-warning)';
@@ -409,13 +437,14 @@ function renderIncidentsTable(incidents) {
       ? '<span class="carrier-badge carrier-up">RESOLVED</span>'
       : '<span class="carrier-badge carrier-down">ACTIVE INCIDENT</span>';
 
-    const severityClass = inc.severity === 'CRITICAL' ? 'status-critical' : 'status-warning';
+    const severityClass = inc.severity === 'CRITICAL' || inc.severity === 'DOWN' ? 'status-critical' : 'status-warning';
+    const linkName = linkLabels[inc.link_id] || inc.link_id.toUpperCase();
 
     return `
       <tr>
         <td>${startDate.toLocaleDateString()} ${startDate.toLocaleTimeString()}</td>
-        <td><strong>${inc.link_id.toUpperCase()}</strong></td>
-        <td><span class="status-pill ${severityClass}" style="padding:2px 8px; font-size:0.7rem;">${inc.severity}</span></td>
+        <td><strong>${escapeHtml(linkName)}</strong></td>
+        <td><span class="status-pill ${severityClass}" style="padding:2px 8px; font-size:0.7rem;">${escapeHtml(inc.severity)}</span></td>
         <td>${escapeHtml(inc.trigger_reason)}</td>
         <td>Max Lat: ${inc.peak_latency}ms | Max Loss: ${inc.peak_loss}%</td>
         <td>${durationStr}</td>
@@ -427,13 +456,14 @@ function renderIncidentsTable(incidents) {
 
 function formatDuration(seconds) {
   if (seconds < 60) return `${Math.round(seconds)}s`;
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.round(seconds % 60);
-  return `${mins}m ${secs}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  const h = Math.floor(seconds / 3600);
+  if (h < 24) return `${h}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
 function escapeHtml(str) {
-  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /**
@@ -483,6 +513,7 @@ function drawChart(ctx, canvas, opts) {
   for (const p of opts.w1Data) if (p[opts.valueKey] > maxVal) maxVal = p[opts.valueKey] * 1.15;
   for (const p of opts.w2Data) if (p[opts.valueKey] > maxVal) maxVal = p[opts.valueKey] * 1.15;
   if (opts.critVal && opts.critVal * 1.2 > maxVal) maxVal = opts.critVal * 1.2;
+  if (opts.unit === '%') maxVal = Math.min(maxVal, 100);
 
   ctx.strokeStyle = '#1f2a3f';
   ctx.lineWidth = 1;
@@ -524,37 +555,44 @@ function drawChart(ctx, canvas, opts) {
   if (opts.warnVal) drawThreshold(opts.warnVal, '#f59e0b', 'WARN');
   if (opts.critVal) drawThreshold(opts.critVal, '#ef4444', 'CRIT');
 
+  // Draws one line per run of valid points; down/missing samples leave a gap instead of
+  // dropping to zero (a dead link must not look like a perfect 0 ms link).
   const drawLine = (data, strokeColor, fillColor) => {
     if (!data || data.length === 0) return;
+    const segments = [];
+    let current = [];
+    for (const d of data) {
+      const v = d[opts.valueKey];
+      const missing = v === null || v === undefined || (opts.valueKey === 'latency' && (d.status === 'down' || d.status === 'DOWN'));
+      if (missing) {
+        if (current.length) segments.push(current);
+        current = [];
+        continue;
+      }
+      const x = padding.left + ((d.timestamp - startTime) / (now - startTime)) * graphW;
+      const y = padding.top + graphH - (Math.min(v, maxVal) / maxVal) * graphH;
+      current.push({ x, y });
+    }
+    if (current.length) segments.push(current);
 
     ctx.save();
-    ctx.beginPath();
-
-    const points = [];
-    for (const d of data) {
-      const x = padding.left + ((d.timestamp - startTime) / (now - startTime)) * graphW;
-      const y = padding.top + graphH - (Math.min(d[opts.valueKey], maxVal) / maxVal) * graphH;
-      points.push({ x, y });
-    }
-
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      ctx.lineTo(points[i].x, points[i].y);
-    }
-
-    ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    if (points.length > 1) {
-      ctx.lineTo(points[points.length - 1].x, padding.top + graphH);
-      ctx.lineTo(points[0].x, padding.top + graphH);
-      ctx.closePath();
-      const grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + graphH);
-      grad.addColorStop(0, fillColor);
-      grad.addColorStop(1, 'transparent');
-      ctx.fillStyle = grad;
-      ctx.fill();
+    for (const points of segments) {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      if (points.length > 1) {
+        ctx.lineTo(points[points.length - 1].x, padding.top + graphH);
+        ctx.lineTo(points[0].x, padding.top + graphH);
+        ctx.closePath();
+        const grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + graphH);
+        grad.addColorStop(0, fillColor);
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.fill();
+      }
     }
     ctx.restore();
   };
@@ -611,14 +649,30 @@ function setupEventListeners() {
     });
   });
 
-  el.btnOpenTuningGuide.addEventListener('click', () => {
-    el.tuningGuideModal.classList.remove('hidden');
+  // Reports
+  el.btnOpenReports.addEventListener('click', openReportsModal);
+  el.btnCloseReports.addEventListener('click', () => el.reportsModal.classList.add('hidden'));
+  document.getElementById('btnGenerateReport').addEventListener('click', generateReport);
+  document.getElementById('btnReportHtml').addEventListener('click', () => {
+    window.open(`/api/reports/daily?date=${encodeURIComponent(el.reportDate.value)}&format=html`, '_blank', 'noopener');
   });
-  el.btnCloseTuningGuide.addEventListener('click', () => {
-    el.tuningGuideModal.classList.add('hidden');
+  document.getElementById('btnReportCsv').addEventListener('click', () => {
+    window.location.href = `/api/reports/daily?date=${encodeURIComponent(el.reportDate.value)}&format=csv`;
   });
-  el.btnDismissTuning.addEventListener('click', () => {
-    el.tuningGuideModal.classList.add('hidden');
+  document.getElementById('btnSendReport').addEventListener('click', () => sendReport(el.reportDate.value, el.reportFeedback));
+  document.getElementById('btnSendYesterdayReport').addEventListener('click', () =>
+    sendReport(localDate(-1), document.getElementById('reportSettingsFeedback')));
+
+  // Server port & webhook URL
+  document.getElementById('btnApplyPort').addEventListener('click', applyPort);
+  document.getElementById('btnCopyWebhook').addEventListener('click', async () => {
+    const input = document.getElementById('cfgWebhookUrl');
+    try {
+      await navigator.clipboard.writeText(input.value);
+    } catch {
+      input.select();
+      document.execCommand('copy');
+    }
   });
 
   el.btnOpenSettings.addEventListener('click', openSettingsModal);
@@ -700,6 +754,16 @@ async function openSettingsModal() {
     document.getElementById('cfgFgWan1').value = cfg.fortigate?.wan1Interface || 'wan1';
     document.getElementById('cfgFgWan2').value = cfg.fortigate?.wan2Interface || 'wan2';
     document.getElementById('cfgFgHealthCheck').value = cfg.fortigate?.healthCheckName || 'Default_DNS';
+    document.getElementById('cfgFgWan1Label').value = cfg.fortigate?.wan1Label || 'WAN 1';
+    document.getElementById('cfgFgWan2Label').value = cfg.fortigate?.wan2Label || 'WAN 2';
+    document.getElementById('cfgSiteName').value = cfg.fortigate?.siteName || '';
+    const hookHost = location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'
+      ? location.hostname : (cfg.server?.addresses?.[0] || '<this-server-ip>');
+    const hookUrl = `http://${hookHost}:${cfg.server?.port || location.port || 80}${cfg.webhook?.path || '/api/webhook/fortigate'}?token=${cfg.webhook?.token || ''}`;
+    document.getElementById('cfgWebhookUrl').value = hookUrl;
+    document.getElementById('securityNote').textContent = cfg.security?.passwordSet
+      ? `Remote dashboard access is enabled (user "${cfg.security.user}").`
+      : 'Remote dashboard access is disabled until you set a password: run "node server.js --set-password" on the server.';
 
     // Thresholds
     document.getElementById('thLossWarn').value = cfg.thresholds?.packetLossWarning ?? 2.0;
@@ -710,6 +774,7 @@ async function openSettingsModal() {
     document.getElementById('thJitCrit').value = cfg.thresholds?.jitterCriticalMs ?? 50;
     document.getElementById('thConsecFails').value = cfg.thresholds?.consecutiveFailsToAlert ?? 2;
     document.getElementById('thConsecRecovery').value = cfg.thresholds?.consecutiveHealthyToRecover ?? 4;
+    document.getElementById('thReminder').value = cfg.thresholds?.reminderMinutes ?? 30;
 
     // Notifications: Windows Toast
     document.getElementById('notifWinToast').checked = !!cfg.notifications?.windowsToast?.enabled;
@@ -747,6 +812,18 @@ async function openSettingsModal() {
     document.getElementById('cfgDiscordUrl').value = cfg.notifications?.discord?.webhookUrl || '';
     document.getElementById('notifSlack').checked = !!cfg.notifications?.slack?.enabled;
     document.getElementById('cfgSlackUrl').value = cfg.notifications?.slack?.webhookUrl || '';
+    document.getElementById('cfgReportEnabled').checked = !!cfg.reports?.dailyEnabled;
+    document.getElementById('cfgReportTime').value = cfg.reports?.dailyTime || '07:00';
+    const portInput = document.getElementById('cfgServerPort');
+    portInput.value = cfg.server?.port || location.port || 4000;
+    portInput.disabled = !!cfg.server?.envOverride;
+    document.getElementById('btnApplyPort').disabled = !!cfg.server?.envOverride;
+    document.getElementById('portHint').textContent = cfg.server?.envOverride
+      ? 'Set by the PORT environment variable; remove it to change the port here.'
+      : 'Applies immediately. The dashboard reloads on the new port.';
+    document.getElementById('portFeedback').textContent = '';
+    document.getElementById('notifTeams').checked = !!cfg.notifications?.teams?.enabled;
+    document.getElementById('cfgTeamsUrl').value = cfg.notifications?.teams?.webhookUrl || '';
 
     el.settingsModal.classList.remove('hidden');
   } catch (err) {
@@ -761,7 +838,10 @@ async function saveSettings() {
       apiToken: document.getElementById('cfgFgToken').value,
       wan1Interface: document.getElementById('cfgFgWan1').value,
       wan2Interface: document.getElementById('cfgFgWan2').value,
-      healthCheckName: document.getElementById('cfgFgHealthCheck').value
+      healthCheckName: document.getElementById('cfgFgHealthCheck').value,
+      wan1Label: document.getElementById('cfgFgWan1Label').value,
+      wan2Label: document.getElementById('cfgFgWan2Label').value,
+      siteName: document.getElementById('cfgSiteName').value
     },
     thresholds: {
       packetLossWarning: parseFloat(document.getElementById('thLossWarn').value),
@@ -771,7 +851,8 @@ async function saveSettings() {
       jitterWarningMs: parseFloat(document.getElementById('thJitWarn').value),
       jitterCriticalMs: parseFloat(document.getElementById('thJitCrit').value),
       consecutiveFailsToAlert: parseInt(document.getElementById('thConsecFails').value, 10),
-      consecutiveHealthyToRecover: parseInt(document.getElementById('thConsecRecovery').value, 10)
+      consecutiveHealthyToRecover: parseInt(document.getElementById('thConsecRecovery').value, 10),
+      reminderMinutes: parseInt(document.getElementById('thReminder').value, 10)
     },
     notifications: {
       windowsToast: { enabled: document.getElementById('notifWinToast').checked },
@@ -807,7 +888,15 @@ async function saveSettings() {
       slack: {
         enabled: document.getElementById('notifSlack').checked,
         webhookUrl: document.getElementById('cfgSlackUrl').value
+      },
+      teams: {
+        enabled: document.getElementById('notifTeams').checked,
+        webhookUrl: document.getElementById('cfgTeamsUrl').value
       }
+    },
+    reports: {
+      dailyEnabled: document.getElementById('cfgReportEnabled').checked,
+      dailyTime: document.getElementById('cfgReportTime').value || '07:00'
     }
   };
 
@@ -841,13 +930,18 @@ async function testFortiGateConnection() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         host: document.getElementById('cfgFgHost').value,
-        apiToken: document.getElementById('cfgFgToken').value
+        apiToken: document.getElementById('cfgFgToken').value,
+        healthCheckName: document.getElementById('cfgFgHealthCheck').value,
+        wan1Interface: document.getElementById('cfgFgWan1').value,
+        wan2Interface: document.getElementById('cfgFgWan2').value
       })
     });
     const result = await res.json();
     if (result.success) {
-      el.fgTestResult.textContent = `✅ Connected! Version: ${result.version} (Serial: ${result.serial})`;
-      el.fgTestResult.style.color = 'var(--color-healthy)';
+      const hcs = (result.healthChecks || []).map(h => `${h.name} [${h.members.join(', ')}]`).join('; ');
+      el.fgTestResult.textContent = `✅ Connected to ${result.hostname} (${result.version})` +
+        (result.warning ? ` ⚠️ ${result.warning}` : '') + (hcs ? ` · Health checks: ${hcs}` : '');
+      el.fgTestResult.style.color = result.warning ? 'var(--color-warning)' : 'var(--color-healthy)';
     } else {
       el.fgTestResult.textContent = `❌ Failed: ${result.error}`;
       el.fgTestResult.style.color = 'var(--color-critical)';
@@ -891,6 +985,8 @@ async function testNotificationChannel(channel) {
     body.webhookUrl = document.getElementById('cfgDiscordUrl').value;
   } else if (channel === 'slack') {
     body.webhookUrl = document.getElementById('cfgSlackUrl').value;
+  } else if (channel === 'teams') {
+    body.webhookUrl = document.getElementById('cfgTeamsUrl').value;
   }
 
   try {
@@ -910,6 +1006,138 @@ async function testNotificationChannel(channel) {
   } catch (err) {
     el.notifTestFeedback.textContent = `❌ Error: ${err.message}`;
     el.notifTestFeedback.style.color = 'var(--color-critical)';
+  }
+}
+
+/**
+ * Daily Reports
+ */
+function localDate(offsetDays = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function fmtMs(ms) {
+  return formatDuration((ms || 0) / 1000);
+}
+
+function openReportsModal() {
+  if (!el.reportDate.value) el.reportDate.value = localDate(-1);
+  el.reportDate.max = localDate(0);
+  el.reportFeedback.textContent = '';
+  el.reportsModal.classList.remove('hidden');
+  generateReport();
+}
+
+async function generateReport() {
+  el.reportContent.innerHTML = '<p class="empty-state">Generating report...</p>';
+  try {
+    const res = await fetch(`/api/reports/daily?date=${encodeURIComponent(el.reportDate.value)}`);
+    const r = await res.json();
+    if (!res.ok) throw new Error(r.error || `HTTP ${res.status}`);
+    renderReport(r);
+  } catch (err) {
+    el.reportContent.innerHTML = `<p class="empty-state">❌ ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderReport(r) {
+  const v = (x, unit = '') => (x === null || x === undefined ? '–' : `${x}${unit}`);
+  const availClass = (p) => (p === null ? '' : p >= 99.9 ? 'good' : p >= 99 ? 'warn' : 'bad');
+  const rows = r.links.map(l => `
+    <tr>
+      <td><strong>${escapeHtml(l.label)}</strong></td>
+      <td><span class="avail ${availClass(l.availabilityPct)}">${v(l.availabilityPct, '%')}</span></td>
+      <td>${l.outages} (${fmtMs(l.downMs)})</td>
+      <td>${fmtMs(l.degradedMs)}</td>
+      <td>${v(l.latency.avg, ' ms')} / ${v(l.latency.p95, ' ms')} / ${v(l.latency.max, ' ms')}</td>
+      <td>${v(l.loss.avg, '%')} / ${v(l.loss.max, '%')}</td>
+      <td>${v(l.coveragePct, '%')}</td>
+    </tr>`).join('');
+  const incidents = r.links.flatMap(l => l.incidentList.map(i => ({ ...i, label: l.label })))
+    .sort((a, b) => a.start - b.start)
+    .map(i => `
+    <tr>
+      <td>${new Date(i.start).toLocaleTimeString()}${i.end ? ` – ${new Date(i.end).toLocaleTimeString()}` : ' – ongoing'}</td>
+      <td>${escapeHtml(i.label)}</td>
+      <td>${escapeHtml(i.severity)}</td>
+      <td>${fmtMs(i.durationMs)}</td>
+      <td>${escapeHtml(i.reason)}</td>
+    </tr>`).join('');
+
+  el.reportContent.innerHTML = `
+    <div class="report-headline">${escapeHtml(r.headline)}${r.partial ? ' <em>(day in progress)</em>' : ''}</div>
+    <div class="report-kpis">
+      <div class="report-kpi ${r.bothDownMs ? 'bad' : 'good'}"><span>No internet (both links down)</span><strong>${fmtMs(r.bothDownMs)}</strong></div>
+      <div class="report-kpi"><span>Running on a single link</span><strong>${fmtMs(r.singleLinkMs)}</strong></div>
+    </div>
+    <div class="table-container">
+      <table class="incidents-table">
+        <thead><tr><th>Link</th><th>Availability</th><th>Outages (down)</th><th>Degraded</th><th>Latency avg / p95 / max</th><th>Loss avg / max</th><th>Coverage</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <h4 style="margin:18px 0 8px;">Incidents</h4>
+    ${incidents ? `<div class="table-container"><table class="incidents-table">
+      <thead><tr><th>Time</th><th>Link</th><th>Worst level</th><th>Duration (this day)</th><th>Reason</th></tr></thead>
+      <tbody>${incidents}</tbody></table></div>` : '<p class="empty-state">No incidents recorded on this day.</p>'}`;
+}
+
+async function sendReport(date, feedbackEl) {
+  feedbackEl.textContent = 'Sending report...';
+  feedbackEl.style.color = 'var(--text-secondary)';
+  try {
+    const res = await fetch('/api/reports/daily/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date })
+    });
+    const r = await res.json();
+    if (!res.ok || !r.success) throw new Error(r.error || `HTTP ${res.status}`);
+    feedbackEl.textContent = `✅ ${r.message}`;
+    feedbackEl.style.color = 'var(--color-healthy)';
+  } catch (err) {
+    feedbackEl.textContent = `❌ ${err.message}`;
+    feedbackEl.style.color = 'var(--color-critical)';
+  }
+}
+
+/**
+ * Listening port
+ */
+async function applyPort() {
+  const feedback = document.getElementById('portFeedback');
+  const port = parseInt(document.getElementById('cfgServerPort').value, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    feedback.textContent = '❌ Enter a port between 1 and 65535.';
+    feedback.style.color = 'var(--color-critical)';
+    return;
+  }
+  if (String(port) === (location.port || (location.protocol === 'https:' ? '443' : '80'))) {
+    feedback.textContent = 'Already using this port.';
+    feedback.style.color = 'var(--text-secondary)';
+    return;
+  }
+  if (!confirm(`Move the monitor to port ${port}? The dashboard will reload at the new address. ` +
+    'Remember to update the FortiGate webhook URL if you use it.')) return;
+  feedback.textContent = 'Switching port...';
+  try {
+    const res = await fetch('/api/server/port', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port })
+    });
+    const r = await res.json();
+    if (!res.ok || !r.success) throw new Error(r.error || `HTTP ${res.status}`);
+    feedback.textContent = `✅ Now listening on port ${r.port}. ${r.firewall || ''} Redirecting...`;
+    feedback.style.color = 'var(--color-healthy)';
+    const target = new URL(window.location.href);
+    target.port = String(r.port);
+    setTimeout(() => { window.location.href = target.toString(); }, 2500);
+  } catch (err) {
+    feedback.textContent = `❌ ${err.message}`;
+    feedback.style.color = 'var(--color-critical)';
   }
 }
 

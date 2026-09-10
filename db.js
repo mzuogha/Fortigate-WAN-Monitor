@@ -16,6 +16,10 @@ class MonitorDB {
     }
 
     this.db = new DatabaseSync(dbPath);
+    // WAL lets the dashboard read while the poller writes, and survives crashes better
+    if (dbPath !== ':memory:') {
+      try { this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;'); } catch (_) { /* optional */ }
+    }
     this.initTables();
   }
 
@@ -55,12 +59,18 @@ class MonitorDB {
         value TEXT NOT NULL
       );
     `);
+
+    // Migration: confirmed link level per sample (HEALTHY/WARNING/CRITICAL/DOWN), used by reports
+    const cols = this.db.prepare('PRAGMA table_info(metrics)').all().map(c => c.name);
+    if (!cols.includes('level')) {
+      this.db.exec('ALTER TABLE metrics ADD COLUMN level TEXT');
+    }
   }
 
   saveMetric(sample) {
     const stmt = this.db.prepare(`
-      INSERT INTO metrics (timestamp, link_id, latency, packet_loss, jitter, status, rx_kbps, tx_kbps)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO metrics (timestamp, link_id, latency, packet_loss, jitter, status, rx_kbps, tx_kbps, level)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     return stmt.run(
       sample.timestamp || Date.now(),
@@ -70,8 +80,28 @@ class MonitorDB {
       sample.jitter ?? 0,
       sample.status || 'UNKNOWN',
       sample.rxKbps ?? 0,
-      sample.txKbps ?? 0
+      sample.txKbps ?? 0,
+      sample.level || null
     );
+  }
+
+  /** Raw samples in [start, end) for report generation. */
+  getMetricsBetween(start, end) {
+    return this.db.prepare(`
+      SELECT timestamp, link_id, latency, packet_loss, jitter, status, level
+      FROM metrics
+      WHERE timestamp >= ? AND timestamp < ?
+      ORDER BY timestamp ASC
+    `).all(start, end);
+  }
+
+  /** Incidents overlapping [start, end). */
+  getIncidentsBetween(start, end) {
+    return this.db.prepare(`
+      SELECT * FROM incidents
+      WHERE start_time < ? AND COALESCE(end_time, ?) >= ?
+      ORDER BY start_time ASC
+    `).all(end, Date.now(), start);
   }
 
   getLatestMetrics() {
@@ -113,6 +143,65 @@ class MonitorDB {
       WHERE id = ?
     `);
     return stmt.run(peakLatency, peakLoss, incidentId);
+  }
+
+  /**
+   * Raise an open incident's severity (never lowers it, so the log shows the worst level reached).
+   */
+  updateIncidentSeverity(incidentId, severity) {
+    const rank = { HEALTHY: 0, WARNING: 1, CRITICAL: 2, DOWN: 3 };
+    const row = this.db.prepare('SELECT severity FROM incidents WHERE id = ?').get(incidentId);
+    if (!row || (rank[severity] ?? 0) <= (rank[row.severity] ?? 0)) return;
+    this.db.prepare('UPDATE incidents SET severity = ? WHERE id = ?').run(severity, incidentId);
+  }
+
+  /**
+   * Per-link availability summary for the last `hours` hours, from stored samples and incidents.
+   * Availability = share of samples where the link was not DOWN.
+   */
+  getAvailabilityReport(hours = 24) {
+    const since = Date.now() - hours * 3600 * 1000;
+    const rows = this.db.prepare(`
+      SELECT link_id,
+             COUNT(*) AS samples,
+             SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) AS down_samples,
+             AVG(CASE WHEN status != 'down' THEN latency END) AS avg_latency,
+             AVG(CASE WHEN status != 'down' THEN packet_loss END) AS avg_loss,
+             MAX(CASE WHEN status != 'down' THEN latency END) AS max_latency
+      FROM metrics
+      WHERE timestamp >= ?
+      GROUP BY link_id
+    `).all(since);
+    const incidents = this.db.prepare(`
+      SELECT link_id,
+             COUNT(*) AS incidents,
+             SUM(CASE WHEN severity = 'DOWN' THEN 1 ELSE 0 END) AS outages,
+             SUM(COALESCE(end_time, ?) - MAX(start_time, ?)) AS impacted_ms
+      FROM incidents
+      WHERE COALESCE(end_time, ?) >= ?
+      GROUP BY link_id
+    `).all(Date.now(), since, Date.now(), since);
+    const byLink = {};
+    for (const r of rows) {
+      byLink[r.link_id] = {
+        linkId: r.link_id,
+        samples: r.samples,
+        availabilityPct: r.samples ? Number((100 * (r.samples - r.down_samples) / r.samples).toFixed(3)) : null,
+        avgLatencyMs: r.avg_latency === null ? null : Number(r.avg_latency.toFixed(1)),
+        maxLatencyMs: r.max_latency === null ? null : Number(r.max_latency.toFixed(1)),
+        avgLossPct: r.avg_loss === null ? null : Number(r.avg_loss.toFixed(2)),
+        incidents: 0,
+        outages: 0,
+        impactedMinutes: 0
+      };
+    }
+    for (const r of incidents) {
+      const entry = byLink[r.link_id] || (byLink[r.link_id] = { linkId: r.link_id, samples: 0, availabilityPct: null });
+      entry.incidents = r.incidents;
+      entry.outages = r.outages;
+      entry.impactedMinutes = Math.round((r.impacted_ms || 0) / 60000);
+    }
+    return { hours, since, links: Object.values(byLink) };
   }
 
   getActiveIncident(linkId) {
@@ -182,6 +271,11 @@ class MonitorDB {
     const cutoff = Date.now() - (maxAgeHours * 3600 * 1000);
     const stmt = this.db.prepare('DELETE FROM metrics WHERE timestamp < ?');
     return stmt.run(cutoff);
+  }
+
+  pruneOldIncidents(maxAgeDays = 365) {
+    const cutoff = Date.now() - (maxAgeDays * 86400 * 1000);
+    return this.db.prepare('DELETE FROM incidents WHERE resolved = 1 AND start_time < ?').run(cutoff);
   }
 
   close() {

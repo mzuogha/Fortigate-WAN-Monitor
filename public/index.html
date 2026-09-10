@@ -33,9 +33,12 @@
       <button class="btn btn-outline" id="btnAudioToggle" title="Toggle audio alarm on degradation">
         <span id="audioIcon">🔔</span> <span id="audioText">Alert Audio: ON</span>
       </button>
-      <button class="btn btn-primary" id="btnOpenTuningGuide">
-        📖 FortiOS Tuning Guide
+      <button class="btn btn-outline" id="btnOpenReports" title="Daily availability reports">
+        📊 Reports
       </button>
+      <a class="btn btn-primary" href="help.html" target="_blank" rel="noopener" title="Setup guide, requirements and troubleshooting">
+        ❓ Help
+      </a>
       <button class="btn btn-secondary" id="btnOpenSettings">
         ⚙️ Settings & Alerts
       </button>
@@ -59,13 +62,13 @@
     <section class="simulation-toolbar card">
       <div class="toolbar-header">
         <div class="toolbar-title">
-          <span class="sim-badge" id="simModeBadge">SIMULATOR ACTIVE</span>
+          <span class="sim-badge" id="simModeBadge">REAL FORTIGATE</span>
           <span>Interactive Degradation Tester</span>
-          <span class="sim-hint">(Test instant alerts & UI response before connecting to FortiGate)</span>
+          <span class="sim-hint">(Fake data for testing alerts. Leave OFF to monitor your real FortiGate.)</span>
         </div>
         <div class="toolbar-toggle">
           <label class="switch">
-            <input type="checkbox" id="chkSimulationToggle" checked>
+            <input type="checkbox" id="chkSimulationToggle">
             <span class="slider round"></span>
           </label>
           <span class="switch-label">Simulate WAN Traffic</span>
@@ -96,7 +99,7 @@
       <div class="wan-card" id="wan1Card">
         <div class="wan-card-header">
           <div class="wan-info">
-            <h2 class="wan-name">WAN 1 <span class="tag tag-primary">Primary ISP</span></h2>
+            <h2 class="wan-name"><span id="wan1Name">WAN 1</span> <span class="tag tag-primary">Link 1</span></h2>
             <span class="wan-interface-id" id="wan1IfName">Interface: port1 / wan1</span>
           </div>
           <div class="status-pill status-healthy" id="wan1StatusPill">
@@ -140,7 +143,7 @@
       <div class="wan-card" id="wan2Card">
         <div class="wan-card-header">
           <div class="wan-info">
-            <h2 class="wan-name">WAN 2 <span class="tag tag-secondary">Secondary ISP</span></h2>
+            <h2 class="wan-name"><span id="wan2Name">WAN 2</span> <span class="tag tag-secondary">Link 2</span></h2>
             <span class="wan-interface-id" id="wan2IfName">Interface: port2 / wan2</span>
           </div>
           <div class="status-pill status-healthy" id="wan2StatusPill">
@@ -187,8 +190,8 @@
         <div class="chart-title-group">
           <h3 class="chart-title">Real-Time Performance SLA Telemetry</h3>
           <span class="chart-legend">
-            <span class="legend-item"><span class="legend-color wan1"></span> WAN 1</span>
-            <span class="legend-item"><span class="legend-color wan2"></span> WAN 2</span>
+            <span class="legend-item"><span class="legend-color wan1"></span> <span id="legendWan1">WAN 1</span></span>
+            <span class="legend-item"><span class="legend-color wan2"></span> <span id="legendWan2">WAN 2</span></span>
             <span class="legend-item"><span class="legend-color threshold-warn"></span> Warning Threshold</span>
             <span class="legend-item"><span class="legend-color threshold-crit"></span> Critical Threshold</span>
           </span>
@@ -241,83 +244,27 @@
     </section>
   </main>
 
-  <!-- FortiOS Tuning Guide Modal -->
-  <div class="modal-backdrop hidden" id="tuningGuideModal">
+  <!-- Daily Reports Modal -->
+  <div class="modal-backdrop hidden" id="reportsModal">
     <div class="modal-dialog modal-large">
       <div class="modal-header">
-        <h3>🛡️ FortiGate SD-WAN Tuning Guide: Prevent User Impact on Failover</h3>
-        <button class="modal-close" id="btnCloseTuningGuide">&times;</button>
+        <h3>📊 Daily WAN Reports</h3>
+        <button class="modal-close" id="btnCloseReports">&times;</button>
       </div>
-      <div class="modal-body tuning-content">
-        <div class="guide-alert">
-          <strong>Why do your users get disconnected when one WAN degrades?</strong><br>
-          By default, standard FortiGate ECMP (load balancing) continues hashing new and existing TCP connections onto a link as long as the physical interface is UP. Furthermore, ongoing TCP sessions freeze because NAT session tables are not forcibly reset. Apply these 5 optimizations to achieve <strong>sub-second zero-impact failover</strong>.
+      <div class="modal-body">
+        <div class="report-toolbar">
+          <div class="form-group" style="margin:0;">
+            <label for="reportDate">Report date</label>
+            <input type="date" id="reportDate" class="form-control">
+          </div>
+          <button class="btn btn-primary" id="btnGenerateReport">Generate</button>
+          <button class="btn btn-outline" id="btnReportHtml" title="Open the full report in a new tab (print or save as PDF from there)">Open full report</button>
+          <button class="btn btn-outline" id="btnReportCsv">Download CSV</button>
+          <button class="btn btn-secondary" id="btnSendReport" title="Send this report through all enabled notification channels">Send now</button>
         </div>
-
-        <div class="guide-step">
-          <h4>1. Enable Immediate Session Reset on SLA Failover (FortiOS CLI)</h4>
-          <p>When WAN1 drops or degrades, this command immediately sends TCP RST packets to clients so web browsers, VPNs, and applications reconnect instantly via WAN2 without stalling for 30–60 seconds:</p>
-          <pre><code>config system sdwan
-    config service
-        edit 1
-            set name "Internet-Traffic"
-            set service-reset enable
-        next
-    end
-end</code></pre>
-        </div>
-
-        <div class="guide-step">
-          <h4>2. Enable SNAT Route Change on Session Failover</h4>
-          <p>Ensures existing NATed traffic changes to the surviving WAN IP address automatically:</p>
-          <pre><code>config system interface
-    edit "wan1"
-        set snat-route-change enable
-    next
-    edit "wan2"
-        set snat-route-change enable
-    next
-end</code></pre>
-        </div>
-
-        <div class="guide-step">
-          <h4>3. Configure High-Sensitivity SD-WAN Performance SLA</h4>
-          <p>Decrease the health check probe interval and failure count so degradation is declared in under 1.5 seconds instead of 30 seconds:</p>
-          <pre><code>config system sdwan
-    config health-check
-        edit "Default_DNS"
-            set server "8.8.8.8" "1.1.1.1"
-            set interval 500       # Probe every 500ms
-            set failtime 3         # Fail after 3 misses (1.5 seconds)
-            set recoverytime 5     # Require 5 clean probes to recover
-            config sla
-                edit 1
-                    set latency-threshold 120
-                    set jitter-threshold 25
-                    set packetloss-threshold 2
-                next
-            end
-        next
-    end
-end</code></pre>
-        </div>
-
-        <div class="guide-step">
-          <h4>4. Change SD-WAN Rule Mode from Simple ECMP to "Lowest Cost (SLA)"</h4>
-          <p>In GUI: <strong>Network > SD-WAN > SD-WAN Rules</strong>. Set strategy to <strong>Lowest Cost (SLA)</strong> or <strong>Maximize Bandwidth (SLA)</strong> with your SLA check selected. Traffic will <em>never</em> be forwarded to a degraded link.</p>
-        </div>
-
-        <div class="guide-step">
-          <h4>5. Setup FortiGate Webhook to notify this App Instantly</h4>
-          <p>Under <strong>Security Fabric > Automation > Create Stitch</strong>:</p>
-          <ul>
-            <li><strong>Trigger:</strong> FortiOS Event Log -> Event ID <code>0100022922</code> (SD-WAN SLA status change) or <code>0100022924</code>.</li>
-            <li><strong>Action:</strong> Webhook -> URL: <code>http://&lt;your-app-ip&gt;:4000/api/webhook/fortigate</code></li>
-          </ul>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-primary" id="btnDismissTuning">Understood</button>
+        <p class="report-hint">Reports cover one calendar day in the monitoring server's local time. Automatic daily delivery is configured under <strong>Settings &amp; Alerts &gt; Daily Reports</strong>.</p>
+        <span id="reportFeedback" class="test-result-inline"></span>
+        <div id="reportContent" class="report-content"><p class="empty-state">Choose a date and click Generate.</p></div>
       </div>
     </div>
   </div>
@@ -335,11 +282,16 @@ end</code></pre>
           <button class="tab-btn active" data-tab="tab-fortigate">FortiGate API</button>
           <button class="tab-btn" data-tab="tab-thresholds">Thresholds</button>
           <button class="tab-btn" data-tab="tab-notifications">Notifications & Alerts</button>
-          <button class="tab-btn" data-tab="tab-service">24/7 Persistence</button>
+          <button class="tab-btn" data-tab="tab-reports">Daily Reports</button>
+          <button class="tab-btn" data-tab="tab-service">Server &amp; 24/7 Service</button>
         </div>
 
         <!-- FortiGate Settings Tab -->
         <div class="tab-content active" id="tab-fortigate">
+          <div class="help-callout">
+            <span>📘 <strong>First time connecting?</strong> Check the requirements and follow the step-by-step FortiGate setup (API admin, trusted host, SD-WAN health check).</span>
+            <a class="btn btn-xs btn-primary" href="help.html#connect" target="_blank" rel="noopener">Open FortiGate connection guide</a>
+          </div>
           <div class="form-group">
             <label>FortiGate Admin Host / URL</label>
             <input type="text" id="cfgFgHost" class="form-control" placeholder="https://192.168.1.1">
@@ -360,14 +312,41 @@ end</code></pre>
               <input type="text" id="cfgFgWan2" class="form-control" value="wan2">
             </div>
           </div>
-          <div class="form-group">
-            <label>SD-WAN Health Check Name</label>
-            <input type="text" id="cfgFgHealthCheck" class="form-control" value="Default_DNS">
+          <div class="form-row">
+            <div class="form-group">
+              <label>WAN 1 Display Name</label>
+              <input type="text" id="cfgFgWan1Label" class="form-control" placeholder="e.g. MTN Fibre">
+            </div>
+            <div class="form-group">
+              <label>WAN 2 Display Name</label>
+              <input type="text" id="cfgFgWan2Label" class="form-control" placeholder="e.g. Airtel LTE">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>SD-WAN Health Check Name</label>
+              <input type="text" id="cfgFgHealthCheck" class="form-control" value="Default_DNS">
+              <small>Performance SLA that both WAN interfaces are members of.</small>
+            </div>
+            <div class="form-group">
+              <label>Site Name</label>
+              <input type="text" id="cfgSiteName" class="form-control" placeholder="e.g. Head Office">
+              <small>Shown in alerts and reports.</small>
+            </div>
           </div>
           <div class="form-actions-inline">
             <button class="btn btn-secondary" id="btnTestFgConnection">Test FortiGate Connection</button>
             <span id="fgTestResult" class="test-result-inline"></span>
           </div>
+          <div class="form-group" style="margin-top:16px;">
+            <label>Automation Stitch Webhook URL (optional)</label>
+            <div class="input-with-button">
+              <input type="text" id="cfgWebhookUrl" class="form-control" readonly>
+              <button class="btn btn-xs btn-outline" id="btnCopyWebhook" type="button">Copy</button>
+            </div>
+            <small>Keep this URL secret: it contains the token. <a href="help.html#webhook" target="_blank" rel="noopener">How to set up the webhook</a></small>
+          </div>
+          <p class="security-note" id="securityNote"></p>
         </div>
 
         <!-- Thresholds Settings Tab -->
@@ -411,6 +390,13 @@ end</code></pre>
             <div class="form-group">
               <label>Consecutive Clean Probes to Recover</label>
               <input type="number" id="thConsecRecovery" class="form-control" value="4">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Reminder While Still Down (minutes)</label>
+              <input type="number" id="thReminder" class="form-control" value="30" min="0">
+              <small>Re-send the alert while a link stays degraded or down. 0 = off.</small>
             </div>
           </div>
         </div>
@@ -571,7 +557,7 @@ end</code></pre>
             <div class="notif-header">
               <label class="checkbox-label">
                 <input type="checkbox" id="notifSlack">
-                <strong>💼 Slack / MS Teams Webhook</strong>
+                <strong>💼 Slack Webhook</strong>
               </label>
               <button class="btn btn-xs btn-outline" data-test="slack">Test Slack</button>
             </div>
@@ -581,25 +567,82 @@ end</code></pre>
             </div>
           </div>
 
+          <!-- 7. Microsoft Teams (Workflows) -->
+          <div class="notif-box">
+            <div class="notif-header">
+              <label class="checkbox-label">
+                <input type="checkbox" id="notifTeams">
+                <strong>🟦 Microsoft Teams (Workflows)</strong>
+              </label>
+              <button class="btn btn-xs btn-outline" data-test="teams">Test Teams</button>
+            </div>
+            <div class="form-group">
+              <label>Workflows Webhook URL</label>
+              <input type="text" id="cfgTeamsUrl" class="form-control" placeholder="https://...logic.azure.com/workflows/...">
+              <small>In the Teams channel: <em>Workflows &gt; "Post to a channel when a webhook request is received"</em>.</small>
+            </div>
+          </div>
+
           <span id="notifTestFeedback" class="test-result-inline"></span>
         </div>
 
-        <!-- 24/7 Persistence Tab -->
+        <!-- Daily Reports Tab -->
+        <div class="tab-content" id="tab-reports">
+          <div class="notif-box">
+            <div class="notif-header">
+              <label class="checkbox-label">
+                <input type="checkbox" id="cfgReportEnabled">
+                <strong>📊 Send a daily report automatically</strong>
+              </label>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Send at (server local time)</label>
+                <input type="time" id="cfgReportTime" class="form-control" value="07:00">
+                <small>Each morning the report for the previous day is sent through all enabled notification channels. Email receives the full report; chat channels receive a summary.</small>
+              </div>
+            </div>
+          </div>
+          <p class="notif-desc">A report shows, per link: availability, outages and down time, time degraded, latency (average, 95th percentile, max), packet loss, and how long the site had no internet at all. You can also generate any day's report on demand from <strong>📊 Reports</strong> in the top bar.</p>
+          <div class="form-actions-inline">
+            <button class="btn btn-secondary" id="btnSendYesterdayReport" type="button">Send yesterday's report now</button>
+            <span id="reportSettingsFeedback" class="test-result-inline"></span>
+          </div>
+        </div>
+
+        <!-- Server & 24/7 Service Tab -->
         <div class="tab-content" id="tab-service">
-          <h4>Windows Server 24/7 Background Service</h4>
+          <h4>Listening Port</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Web server port</label>
+              <div class="input-with-button">
+                <input type="number" id="cfgServerPort" class="form-control" min="1" max="65535">
+                <button class="btn btn-xs btn-primary" id="btnApplyPort" type="button">Apply port</button>
+              </div>
+              <small id="portHint">Applies immediately. The dashboard reloads on the new port.</small>
+            </div>
+          </div>
+          <div class="guide-alert" style="margin-bottom:16px;">
+            After changing the port, also update the <strong>Automation Stitch webhook URL</strong> on the FortiGate (if you use it) and any bookmarks. On Windows the monitor updates its firewall rule automatically when it runs as the background service; otherwise re-run <code>register-service.ps1 -Port &lt;new port&gt;</code>.
+          </div>
+          <span id="portFeedback" class="test-result-inline"></span>
+
+          <h4 style="margin-top:22px;">Windows Server 24/7 Background Service</h4>
           <p style="font-size:0.85rem; color:var(--text-secondary);">
-            To keep this monitor constantly running across system reboots, user logoffs, and power outages, install it as a Windows background task using the provided script.
+            To keep this monitor running across reboots and user logoffs, install it as a Windows background task using the provided script.
           </p>
           <div class="guide-step">
             <h4>One-Click Persistence Installation:</h4>
             <p>Open <strong>PowerShell as Administrator</strong> in the application directory and run:</p>
-            <pre><code>.\register-service.ps1</code></pre>
+            <pre><code>.\register-service.ps1            # or: .\register-service.ps1 -Port 5000</code></pre>
           </div>
           <div class="guide-alert" style="margin-top:10px;">
-            <strong>Features enabled by register-service.ps1:</strong><br>
-            • <strong>Automatic Boot Startup:</strong> Starts before user login (`AtStartup`).<br>
-            • <strong>Auto-Recovery:</strong> Automatically restarts within 1 minute if killed or stopped.<br>
-            • <strong>Firewall Opening:</strong> Allows inbound traffic on port 4000 for webhooks & dashboards.
+            <strong>What register-service.ps1 does:</strong><br>
+            • <strong>Automatic boot startup</strong> before any user logs in.<br>
+            • <strong>Auto-recovery</strong>: restarts within 1 minute if it stops.<br>
+            • <strong>Firewall rule</strong> for the dashboard/webhook port.<br>
+            <strong>Note:</strong> Windows toast notifications are not visible when running as a background service. Use email, Telegram, WhatsApp or Teams for 24/7 alerting.
           </div>
         </div>
       </div>

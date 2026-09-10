@@ -1,6 +1,10 @@
 # Local database & logs
 monitor.db
 monitor.db-journal
+monitor.db-wal
+monitor.db-shm
+*.db-wal
+*.db-shm
 test-*.db
 *.log
 

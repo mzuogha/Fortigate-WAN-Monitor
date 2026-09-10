@@ -57,21 +57,39 @@ class WhatsAppClient {
     }
 
     const cleanPhone = this.phone.replace(/[^0-9+]/g, '');
-    const encodedText = encodeURIComponent(message);
-    const urlStr = `https://api.callmebot.com/whatsapp.php?phone=${cleanPhone}&text=${encodedText}&apikey=${this.apiKey}`;
+    const url = new URL('https://api.callmebot.com/whatsapp.php');
+    url.searchParams.set('phone', cleanPhone);
+    url.searchParams.set('text', message.slice(0, 2000));
+    url.searchParams.set('apikey', this.apiKey);
 
+    const body = await this.httpRequest(url, { method: 'GET' });
+    // CallMeBot returns HTTP 200 even for some errors; check the body
+    if (/APIKey is invalid|not allowed to send/i.test(body)) {
+      throw new Error(`CallMeBot rejected the message: ${body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)}`);
+    }
+    return { success: true, response: body };
+  }
+
+  /**
+   * Minimal HTTP helper with a hard timeout (the previous version could hang forever).
+   */
+  httpRequest(url, { method = 'GET', headers = {}, body = null, timeout = 10000 } = {}) {
+    const target = url instanceof URL ? url : new URL(url);
+    const client = target.protocol === 'https:' ? https : http;
     return new Promise((resolve, reject) => {
-      https.get(urlStr, { timeout: 8000 }, (res) => {
-        let body = '';
-        res.on('data', chunk => body += chunk);
+      const req = client.request(target, { method, headers, timeout }, (res) => {
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { if (data.length < 20000) data += chunk; });
         res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve({ success: true, response: body });
-          } else {
-            reject(new Error(`CallMeBot returned HTTP ${res.statusCode}: ${body}`));
-          }
+          if (res.statusCode >= 200 && res.statusCode < 300) resolve(data);
+          else reject(new Error(`${target.hostname} returned HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
         });
-      }).on('error', reject);
+      });
+      req.on('timeout', () => req.destroy(new Error(`Request to ${target.hostname} timed out after ${timeout}ms`)));
+      req.on('error', reject);
+      if (body) req.write(body);
+      req.end();
     });
   }
 
@@ -93,33 +111,18 @@ class WhatsAppClient {
     }).toString();
 
     const auth = Buffer.from(`${this.accountSid}:${this.authToken}`).toString('base64');
-    const urlStr = `https://api.twilio.com/2010-04-01/Accounts/${this.accountSid}/Messages.json`;
+    const urlStr = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(this.accountSid)}/Messages.json`;
 
-    return new Promise((resolve, reject) => {
-      const req = https.request(urlStr, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(postData)
-        },
-        timeout: 8000
-      }, (res) => {
-        let body = '';
-        res.on('data', chunk => body += chunk);
-        res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve({ success: true, response: body });
-          } else {
-            reject(new Error(`Twilio API returned HTTP ${res.statusCode}: ${body}`));
-          }
-        });
-      });
-
-      req.on('error', reject);
-      req.write(postData);
-      req.end();
+    const body = await this.httpRequest(urlStr, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      body: postData
     });
+    return { success: true, response: body };
   }
 
   /**
@@ -135,32 +138,12 @@ class WhatsAppClient {
       timestamp: new Date().toISOString()
     });
 
-    return new Promise((resolve, reject) => {
-      const url = new URL(this.webhookUrl);
-      const client = url.protocol === 'https:' ? https : http;
-
-      const req = client.request(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload)
-        },
-        timeout: 8000
-      }, (res) => {
-        res.on('data', () => {});
-        res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve({ success: true });
-          } else {
-            reject(new Error(`WhatsApp Webhook returned HTTP ${res.statusCode}`));
-          }
-        });
-      });
-
-      req.on('error', reject);
-      req.write(payload);
-      req.end();
+    await this.httpRequest(this.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+      body: payload
     });
+    return { success: true };
   }
 }
 

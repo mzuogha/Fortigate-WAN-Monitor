@@ -1,11 +1,11 @@
 /**
  * FortiGate Dual-WAN Link Degradation Monitor
- * Synthetic ICMP Probe & Degradation Simulator Engine
+ * Degradation Simulator Engine (demo / alert testing only)
+ *
+ * The previous local-ping fallback was removed: pinging 8.8.8.8 and 1.1.1.1 from the
+ * monitoring PC goes out through whichever link the FortiGate load-balances to, so it
+ * cannot measure WAN1 and WAN2 separately and produced misleading per-link numbers.
  */
-
-const { execFile } = require('node:child_process');
-const { promisify } = require('node:util');
-const execFileAsync = promisify(execFile);
 
 class ProbeEngine {
   constructor(options = {}) {
@@ -72,8 +72,8 @@ class ProbeEngine {
           break;
 
         case 'down':
-          latency = 0;
-          jitter = 0;
+          latency = null;
+          jitter = null;
           loss = 100;
           status = 'down';
           rxKbps = 0;
@@ -95,12 +95,13 @@ class ProbeEngine {
 
       return {
         interface: linkId,
-        latency: Math.max(0, parseFloat(latency.toFixed(1))),
-        jitter: Math.max(0, parseFloat(jitter.toFixed(1))),
+        latency: latency === null ? null : Math.max(0, parseFloat(latency.toFixed(1))),
+        jitter: jitter === null ? null : Math.max(0, parseFloat(jitter.toFixed(1))),
         packetLoss: Math.min(100, Math.max(0, parseFloat(loss.toFixed(1)))),
         status: status,
         rxKbps: Math.max(0, parseFloat(rxKbps.toFixed(0))),
         txKbps: Math.max(0, parseFloat(txKbps.toFixed(0))),
+        carrierDown: false,
         source: 'simulation',
         condition: state.simulatedCondition
       };
@@ -110,58 +111,6 @@ class ProbeEngine {
       wan1: generateForLink('wan1'),
       wan2: generateForLink('wan2')
     };
-  }
-
-  /**
-   * Executes native Windows ping to measure latency and packet loss
-   */
-  async pingTarget(target = '8.8.8.8', count = 3) {
-    try {
-      // Windows ping syntax: ping -n count -w timeout_ms target
-      const { stdout } = await execFileAsync('ping', ['-n', String(count), '-w', '1000', target], {
-        timeout: 5000
-      });
-
-      // Parse packet loss
-      // e.g. "Packets: Sent = 3, Received = 3, Lost = 0 (0% loss)"
-      let packetLoss = 0;
-      const lossMatch = stdout.match(/(\d+)%\s+loss/i);
-      if (lossMatch) {
-        packetLoss = parseFloat(lossMatch[1]);
-      }
-
-      // Parse average latency
-      // e.g. "Minimum = 18ms, Maximum = 22ms, Average = 20ms"
-      let latency = 0;
-      const avgMatch = stdout.match(/Average\s*=\s*(\d+)ms/i);
-      if (avgMatch) {
-        latency = parseFloat(avgMatch[1]);
-      } else {
-        // Fallback for single time= matches
-        const timeMatches = [...stdout.matchAll(/time[<=](\d+)ms/gi)];
-        if (timeMatches.length > 0) {
-          const sum = timeMatches.reduce((acc, m) => acc + parseInt(m[1], 10), 0);
-          latency = sum / timeMatches.length;
-        }
-      }
-
-      return {
-        target,
-        latency,
-        packetLoss,
-        status: packetLoss >= 100 ? 'down' : 'up',
-        source: 'icmp-probe'
-      };
-    } catch (err) {
-      return {
-        target,
-        latency: 0,
-        packetLoss: 100,
-        status: 'down',
-        source: 'icmp-probe',
-        error: err.message
-      };
-    }
   }
 }
 

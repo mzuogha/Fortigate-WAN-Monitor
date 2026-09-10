@@ -13,6 +13,8 @@ $filesToInclude = @(
     "whatsapp-client.js",
     "probe-engine.js",
     "alert-manager.js",
+    "report-generator.js",
+    "package.json",
     "server.js",
     "start.bat",
     "start.ps1",
@@ -20,7 +22,8 @@ $filesToInclude = @(
     "uninstall-service.ps1",
     "package-app.ps1",
     "README.md",
-    "public"
+    "public",
+    "tests"
 )
 
 $tempStaging = Join-Path $env:TEMP "fg-wan-monitor-staging"

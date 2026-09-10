@@ -1,172 +1,146 @@
 # FortiGate Dual-WAN Link Monitor & Failover Guard
 
-A standalone, real-time network monitoring application that continuously monitors both WAN links on a FortiGate firewall, detects service degradation (packet loss, latency spikes, jitter, link flaps, or hard drops) before users feel the outage, and delivers instant alerts across multiple notification channels.
+Monitors both WAN links of a FortiGate in real time, alerts you the moment one degrades or goes down (and when it recovers), and produces daily availability reports you can hold your ISPs to.
+
+It reads the FortiGate's own **SD-WAN Performance SLA** results through the REST API, so latency, jitter and packet loss are measured **per link**, which pings from a PC behind a load-balanced firewall cannot do.
 
 ---
 
-## Key Features
+## Features
 
-1. **Multi-Channel Instant Notifications**:
-   - **📧 Email Alerts (SMTP)**: Direct zero-dependency delivery supporting Office 365, Gmail, Exchange, or local SMTP relays (STARTTLS & SSL/TLS).
-   - **💬 WhatsApp Alerts**: Real-time push notifications supporting **CallMeBot** (free 30-second setup), **Twilio for WhatsApp**, or custom webhooks.
-   - **🖥️ Windows Desktop Toast Notifications**: Native Action Center alerts via PowerShell WinRT.
-   - **✈️ Telegram Bot Alerts**: Instant rich markdown messages.
-   - **🎮 Discord Webhook & 💼 Slack / MS Teams Webhooks**: Color-coded embed cards.
-   - **🔔 Web Audio Synthesizer Alarm**: Real-time audible alarm on the browser dashboard.
-
-2. **Dual FortiGate Monitoring Modes**:
-   - **REST API Polling**: Pulls SD-WAN Performance SLA metrics (`/api/v2/monitor/virtual-wan/sla`) and interface health (`/api/v2/monitor/system/interface`) directly from FortiOS.
-   - **FortiGate Webhook Receiver**: Ingests real-time events triggered by FortiOS Automation Stitches (log ID `0100022922`).
-   - **Local ICMP Ping Prober**: Direct secondary validation to public DNS (8.8.8.8, 1.1.1.1) or gateway IPs.
-
-3. **24/7 Service Persistence Across Restarts**:
-   - Includes `register-service.ps1` to register as a 24/7 Windows background task (`NT AUTHORITY\SYSTEM`).
-   - Starts automatically at machine boot (`AtStartup`) before any user logs in.
-   - Auto-recovery: restarts within 1 minute if interrupted or terminated.
-   - Firewall automation: automatically allows port 4000 inbound.
-
-4. **Modern NOC Web Dashboard**:
-   - Side-by-side WAN1 & WAN2 live status cards with carrier state, latency, packet loss, jitter, and throughput.
-   - Real-time rolling canvas charts for Latency and Packet Loss with threshold reference lines.
-   - Degradation incident audit log with peak metrics and duration.
-   - Built-in Interactive Simulation Toolbar to test alerts immediately.
-
-5. **Zero External Dependencies**:
-   - Built entirely with modern Node 24 native standard modules (`node:http`, `node:net`, `node:tls`, `node:sqlite`, `node:child_process`, `node:fs`).
-   - Runs out of the box with zero `npm install` needed.
+- **Per-link health from the FortiGate**: SLA probe status, latency, jitter, packet loss, physical link state and throughput for each WAN interface.
+- **Smart alerting**: a problem must persist before you're alerted and the link must be stable before it's declared recovered, so flapping links don't flood you. Escalations (e.g. degraded → down), recoveries and reminders while a link stays bad are all notified.
+- **Context in every alert**: each message shows the other link's state, e.g. *"running on a single link"* or *"TOTAL OUTAGE: all WAN links are down"*.
+- **Alerts survive outages**: if alerts can't be sent (typically because both links are down), they're queued and delivered when connectivity returns, marked as delayed.
+- **Channels**: Email (SMTP), WhatsApp (CallMeBot / Twilio / webhook), Telegram, Microsoft Teams (Workflows), Slack, Discord, Windows toast, and an audible alarm on the dashboard.
+- **Daily reports**: availability, outages, down time, degraded time, latency (avg / p95 / max), loss, and how long the site had no internet at all. View any day on demand, open as HTML (print / save as PDF), download as CSV, or have yesterday's report sent automatically each morning.
+- **Live dashboard** with rolling charts and an incident log.
+- **Built-in Help** (`/help.html`): requirements, step-by-step FortiGate connection guide filled in with your own values, webhook setup, failover tuning and troubleshooting.
+- **Zero dependencies**: Node.js standard library only; no `npm install`.
 
 ---
 
-## Quick Start
+## Requirements
 
-### 1. Launch the Application Locally
+- **FortiGate**: FortiOS 6.4+ with **SD-WAN** enabled, both WAN interfaces as members of a **Performance SLA (health check)**, and a read-only **REST API admin**.
+- **Monitoring server**: an always-on machine on the LAN (Windows 10/11 / Server 2016+, Linux or macOS) with **Node.js 22.13 or newer** (24 LTS recommended) and a fixed IP.
+- **Network**: server → FortiGate HTTPS admin port; server → internet for alerts; FortiGate → server on the monitor's port only if you use the optional webhook.
 
-Double-click `start.bat` (or run in PowerShell / Command Prompt):
-```bat
-start.bat
-```
-Or directly with Node:
+Full details and the step-by-step FortiGate setup are in the app: **❓ Help** (or `http://localhost:4000/help.html`).
+
+---
+
+## Quick start
+
 ```powershell
-node server.js
+node server.js          # or double-click start.bat
 ```
 
-Open your browser at:
-👉 **[http://localhost:4000](http://localhost:4000)**
+1. Open **http://localhost:4000** on the server.
+2. Click **❓ Help → Connect to your FortiGate** and follow the steps (read-only API admin, trusted host, health check).
+3. Enter the details under **⚙️ Settings & Alerts → FortiGate API**, click **Test FortiGate Connection**, then **Save**.
+4. Configure at least one channel under **Notifications & Alerts** and use its **Test** button.
+5. Make sure **Simulate WAN Traffic** is **off**.
 
----
+### Remote access
 
-## 24/7 Persistent Background Service (Windows Server / Desktop)
+Until a password is set, the dashboard only works on the server itself. To allow access from other PCs:
 
-To run the application continuously across reboots and user logoffs:
-
-1. Open **PowerShell as Administrator** in the project directory.
-2. Run:
-   ```powershell
-   Set-ExecutionPolicy Bypass -Scope Process -Force
-   .\register-service.ps1
-   ```
-3. To stop or remove the service later, run:
-   ```powershell
-   .\uninstall-service.ps1
-   ```
-
----
-
-## Configuring Notification Channels
-
-Open the dashboard at `http://localhost:4000` and click **⚙️ Settings & Alerts > Notifications & Alerts**:
-
-### 1. WhatsApp Notifications (CallMeBot - 30-Second Setup)
-1. Add the CallMeBot phone number `+34 941 070 000` to your phone contacts.
-2. Send the following WhatsApp message to that number:
-   `I allow callmebot to send me messages`
-3. CallMeBot will reply immediately with your **apikey**.
-4. In the monitor settings:
-   - Check **WhatsApp Instant Notifications**.
-   - Provider: **CallMeBot**.
-   - Phone: Your phone number with international country code (e.g. `+1234567890`).
-   - API Key: The key provided by CallMeBot.
-   - Click **Send Test WhatsApp** to verify!
-
-*(Twilio for WhatsApp and custom webhooks are also supported in the dropdown)*.
-
-### 2. Email Alerts (SMTP)
-1. Check **Email Alerts (SMTP)**.
-2. Enter your SMTP Host (e.g., `smtp.office365.com` or `smtp.gmail.com`).
-3. Port: `587` (STARTTLS) or `465` (SSL).
-4. Enter SMTP Username & Password (for Gmail/O365, use an App Password).
-5. From: `wan-monitor@yourdomain.com`, To: `noc-team@yourdomain.com`.
-6. Click **Send Test Email** to verify!
-
----
-
-## FortiGate Tuning: Stop User Disconnections During Failover
-
-If your users experience disconnects whenever one link degrades, run these commands in the FortiOS CLI:
-
-```fortios
-# 1. Immediate TCP Session Reset on SLA Failover
-config system sdwan
-    config service
-        edit 1
-            set name "Internet-Traffic"
-            set service-reset enable
-        next
-    end
-end
-
-# 2. Enable SNAT Route Change
-config system interface
-    edit "wan1"
-        set snat-route-change enable
-    next
-    edit "wan2"
-        set snat-route-change enable
-    next
-end
-
-# 3. High-Sensitivity Performance SLA (1.5s detection)
-config system sdwan
-    config health-check
-        edit "Default_DNS"
-            set server "8.8.8.8" "1.1.1.1"
-            set interval 500
-            set failtime 3
-            set recoverytime 5
-            config sla
-                edit 1
-                    set latency-threshold 120
-                    set jitter-threshold 25
-                    set packetloss-threshold 2
-                next
-            end
-        next
-    end
-end
+```powershell
+node server.js --set-password
 ```
 
+Then restart the monitor and sign in as `admin`.
+
+### Run 24/7 on Windows
+
+In an **Administrator** PowerShell in the app folder:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\register-service.ps1              # optional: -Port 5000
+```
+
+This registers a startup task (runs before login, restarts on failure) and a firewall rule for the monitor's port. Remove it with `.\uninstall-service.ps1`.
+
+Windows toast notifications are not visible while running as a background service; use email, Telegram, WhatsApp or Teams for 24/7 alerting.
+
 ---
 
-## Directory Structure
+## Daily reports
+
+- **On demand**: click **📊 Reports**, pick a date, then *Generate*, *Open full report* (print or save as PDF), *Download CSV*, or *Send now*.
+- **Automatic**: **Settings → Daily Reports**, enable and choose a time. Every day after that time, yesterday's report is sent through all enabled channels (email gets the full report, chat channels get a summary). Days without data are skipped.
+- **API**: `GET /api/reports/daily?date=YYYY-MM-DD&format=json|html|csv`
+
+History is kept for 14 days by default (`METRIC_RETENTION_DAYS`); incidents are kept for a year.
+
+---
+
+## Changing the port
+
+**Settings → Server & 24/7 Service → Web server port → Apply port.** The monitor starts listening on the new port before closing the old one, and the dashboard reloads at the new address. On Windows, the firewall rule is updated automatically when the monitor runs as the service. Remember to update the FortiGate webhook URL if you use it.
+
+Alternatives: `node server.js --set-port 5000`, `.\register-service.ps1 -Port 5000`, or the `PORT` environment variable (which overrides the setting).
+
+---
+
+## Optional: FortiGate webhook
+
+Polling detects everything on its own. A FortiGate Automation Stitch can additionally push SD-WAN events instantly. The webhook URL, including its secret token, is shown under **Settings → FortiGate API**, and setup steps are in **Help → Real-time webhook**. Requests without the token are rejected.
+
+---
+
+## Configuration reference
+
+Most settings are changed in the dashboard and stored in `monitor.db`. Environment variables (see `config.js`) override them:
+
+| Variable | Purpose |
+|---|---|
+| `PORT`, `HOST` | Listening port / address (default 4000, all interfaces) |
+| `FORTIGATE_HOST`, `FORTIGATE_API_TOKEN`, `FORTIGATE_VDOM` | FortiGate connection |
+| `FORTIGATE_VERIFY_TLS=true` | Verify the FortiGate certificate (default off, for self-signed certs) |
+| `WAN1_INTERFACE`, `WAN2_INTERFACE`, `WAN1_LABEL`, `WAN2_LABEL` | Interface names and display names |
+| `POLL_INTERVAL_MS` | Poll interval (default 5000) |
+| `DASHBOARD_USER`, `DASHBOARD_PASSWORD` | Dashboard login (alternative to `--set-password`) |
+| `WEBHOOK_TOKEN` | Fixed webhook token (otherwise generated on first run) |
+| `DAILY_REPORT=true`, `DAILY_REPORT_TIME=07:00` | Automatic daily report |
+| `SIMULATION=true` | Start in simulation mode (demo data) |
+| `DB_PATH`, `METRIC_RETENTION_DAYS` | Database location and history length |
+
+CLI: `--set-password`, `--set-port <n>`, `--get-port`, `--show-webhook-token`.
+
+---
+
+## Upgrading from v1
+
+- **Simulation is now off by default.** v1 started in simulation mode, so a fresh install showed fake data.
+- **Remote dashboard access now requires a password** (`node server.js --set-password`). Localhost works without one.
+- **The FortiGate webhook now requires the token** shown in Settings. Update your Automation Stitch URL.
+- **Microsoft Teams has its own channel.** Teams Workflows webhooks do not accept the Slack payload.
+- **Node.js 22.13+** is required (built-in SQLite).
+- The v1 local-ping fallback was removed: pinging 8.8.8.8 and 1.1.1.1 from the PC cannot measure WAN1 and WAN2 separately and produced misleading per-link numbers. If the FortiGate is unreachable, the dashboard now says so and you get an alert.
+
+---
+
+## Development
+
+```bash
+npm test        # node --test: 33 unit and integration tests (mock FortiGate + mock SMTP server)
+```
 
 ```
-fortigate-wan-monitor/
-├── config.js              # Thresholds, FortiGate & notification defaults
-├── db.js                  # Native SQLite persistence (node:sqlite)
-├── fortigate-client.js    # FortiOS REST API client
-├── smtp-client.js         # Native zero-dependency SMTP client (STARTTLS & SSL)
-├── whatsapp-client.js     # WhatsApp client (CallMeBot / Twilio / Webhook)
-├── alert-manager.js       # Multi-channel alert dispatcher
-├── probe-engine.js        # ICMP probing & degradation simulation engine
-├── server.js              # HTTP server, REST API, SSE live broadcast, & webhook receiver
-├── register-service.ps1   # Installs 24/7 persistent background service on Windows
-├── uninstall-service.ps1  # Uninstalls the persistent background service
-├── package-app.ps1        # Bundles migration zip file
-├── start.bat & start.ps1  # Quick launch scripts
-├── tests/
-│   └── test-monitor.js    # Automated unit & integration tests (node:test)
-└── public/
-    ├── index.html         # Responsive NOC monitoring dashboard
-    ├── style.css          # Dark NOC theme stylesheet
-    └── app.js             # Canvas charts, Web Audio alarms, & SSE logic
+├── server.js              HTTP server, REST API, SSE feed, auth, webhook, polling, scheduler
+├── config.js              Defaults and environment variables
+├── fortigate-client.js    FortiOS REST API client (SD-WAN health-check + interfaces)
+├── alert-manager.js       Link state machine (hysteresis) and alert dispatch/retry queue
+├── report-generator.js    Daily report calculation and HTML / text / CSV rendering
+├── db.js                  SQLite persistence (node:sqlite)
+├── smtp-client.js         Zero-dependency SMTP client (STARTTLS / TLS, AUTH LOGIN)
+├── whatsapp-client.js     CallMeBot / Twilio / webhook
+├── probe-engine.js        Simulation engine for demos and alert testing
+├── register-service.ps1   Install as a 24/7 Windows background task
+├── uninstall-service.ps1  Remove the background task and firewall rule
+├── tests/                 node:test suites
+└── public/                Dashboard (index.html, app.js, style.css) and Help (help.html, help.js)
 ```
