@@ -7,6 +7,24 @@
  */
 
 const path = require('node:path');
+const fs = require('node:fs');
+
+/**
+ * Where the database and log live. The Windows installer writes install.json next to the
+ * code (in Program Files, admin-only) pointing at a locked-down ProgramData folder, so the
+ * service and every admin command use the same database.
+ * Precedence: DB_PATH > WANMON_DATA_DIR (or --data-dir) > install.json > app folder.
+ */
+function resolveDataDir() {
+  if (process.env.WANMON_DATA_DIR) return process.env.WANMON_DATA_DIR;
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, 'install.json'), 'utf8').replace(/^\uFEFF/, '');
+    const info = JSON.parse(raw);
+    if (info && typeof info.dataDir === 'string' && info.dataDir) return info.dataDir;
+  } catch (_) { /* not installed with install.ps1 */ }
+  return null;
+}
+const dataDir = resolveDataDir();
 
 const bool = (v, dflt) => (v === undefined || v === '' ? dflt : /^(1|true|yes|on)$/i.test(v));
 const num = (v, dflt) => (v === undefined || v === '' || Number.isNaN(Number(v)) ? dflt : Number(v));
@@ -145,7 +163,10 @@ const config = {
   },
 
   // Storage
-  dbPath: process.env.DB_PATH || path.join(__dirname, 'monitor.db'),
+  dataDir,
+  dbPath: process.env.DB_PATH || path.join(dataDir || __dirname, 'monitor.db'),
+  // Log file (rotated at 5 MB). Enabled automatically for installed copies.
+  logFile: process.env.WANMON_LOG_FILE || (dataDir ? path.join(dataDir, 'monitor.log') : ''),
   metricRetentionDays: num(process.env.METRIC_RETENTION_DAYS, 14)
 };
 

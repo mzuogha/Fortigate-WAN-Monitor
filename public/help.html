@@ -26,6 +26,7 @@
       <strong>Contents</strong>
       <a href="#overview">How it works</a>
       <a href="#requirements">Requirements</a>
+      <a href="#install">Install on Windows</a>
       <a href="#connect">Connect to your FortiGate</a>
       <a href="#webhook">Real-time webhook (optional)</a>
       <a href="#security">Remote access &amp; security</a>
@@ -73,6 +74,26 @@
           <tr><td>Your browser</td><td>This server</td><td>TCP <span data-fill="port">4000</span></td><td>Dashboard (remote access needs a password)</td></tr>
           <tr><td>FortiGate</td><td>This server</td><td>TCP <span data-fill="port">4000</span></td><td>Only if you use the optional webhook</td></tr>
         </table>
+      </section>
+
+      <section id="install" class="help-section">
+        <h1>Install on Windows</h1>
+        <p>On the always-on PC that will run the monitor:</p>
+        <ol>
+          <li>Download the project from GitHub (<em>Code &gt; Download ZIP</em>) or copy the package you received, and extract it.</li>
+          <li>Double-click <strong>Install.cmd</strong> and approve the <strong>Windows UAC prompt</strong> (the only prompt).</li>
+          <li>The installer downloads and silently installs <strong>Node.js LTS</strong> if needed (checksum and signature verified), installs the monitor to <code>C:\Program Files\FortiGate WAN Monitor</code>, keeps its data in <code>C:\ProgramData\FortiGate WAN Monitor</code> (Administrators only), opens the firewall port, and starts it as a background task that runs at boot.</li>
+          <li>When it finishes, open this guide and continue with <a href="#connect">Connect to your FortiGate</a>.</li>
+        </ol>
+        <p>Re-running <strong>Install.cmd</strong> upgrades the monitor and keeps all settings and history. Full options (unattended deployment, proxy, offline install, custom port) are in the project README under <em>Deployment guide</em>.</p>
+        <table class="help-table">
+          <tr><th>Admin command (Administrator prompt)</th><th>What it does</th></tr>
+          <tr><td><code>wanmon.cmd status</code></td><td>Shows whether the background task is running</td></tr>
+          <tr><td><code>wanmon.cmd restart</code> / <code>stop</code> / <code>start</code></td><td>Controls the monitor</td></tr>
+          <tr><td><code>wanmon.cmd logs</code></td><td>Follows the log file</td></tr>
+          <tr><td><code>wanmon.cmd --set-password</code></td><td>Sets the dashboard password (then restart)</td></tr>
+        </table>
+        <p class="muted"><code>wanmon.cmd</code> is in <code>C:\Program Files\FortiGate WAN Monitor</code>. To remove the monitor, double-click <strong>Uninstall.cmd</strong> in the extracted folder.</p>
       </section>
 
       <section id="connect" class="help-section">
@@ -194,9 +215,10 @@ execute api-user generate-key wanmon</code></pre>
       <section id="security" class="help-section">
         <h1>Remote access &amp; security</h1>
         <ul class="checklist">
-          <li>Until a password is set, the dashboard works <strong>only on this server</strong> (<code>http://localhost:<span data-fill="port">4000</span></code>). To open it from other PCs, run on the server:
-            <pre><code>node server.js --set-password</code></pre>
-            then restart the monitor. You will be asked for user <code>admin</code> and that password.</li>
+          <li>Until a password is set, the dashboard works <strong>only on this server</strong> (<code>http://localhost:<span data-fill="port">4000</span></code>). To open it from other PCs, open an <strong>Administrator</strong> command prompt on the server and run:
+            <pre><code>"C:\Program Files\FortiGate WAN Monitor\wanmon.cmd" --set-password
+"C:\Program Files\FortiGate WAN Monitor\wanmon.cmd" restart</code></pre>
+            Sign in as user <code>admin</code> with that password. (You can also set it during installation with <code>Install.cmd -PromptForPassword</code>. When running from a folder instead of the installer, use <code>node server.js --set-password</code>.)</li>
           <li>The FortiGate webhook uses its own token and does not need the dashboard password.</li>
           <li>Secrets (API token, SMTP password, bot tokens, webhook URLs) are never sent back to the browser in full.</li>
           <li>Keep the FortiGate API profile <strong>read-only</strong> and restrict its trusted host to this server.</li>
@@ -233,7 +255,7 @@ execute api-user generate-key wanmon</code></pre>
         <p>Default port is 4000. Change it under <em>⚙️ Settings &amp; Alerts &gt; Server &amp; 24/7 Service</em>. The new port takes effect immediately and the dashboard reloads on it. Afterwards:</p>
         <ul class="checklist">
           <li>Update the FortiGate Automation Stitch webhook URL, if you use it.</li>
-          <li>On Windows the firewall rule is updated automatically when the monitor runs as the background service. Otherwise, in an Administrator PowerShell: <code>.\register-service.ps1 -Port 5000</code></li>
+          <li>On Windows the firewall rule is updated automatically when the monitor runs as the background service. Otherwise re-run the installer with the new port: <code>Install.cmd -Port 5000</code> (settings and history are kept).</li>
           <li>If the <code>PORT</code> environment variable is set, it takes precedence and the setting is locked.</li>
         </ul>
       </section>
@@ -278,9 +300,9 @@ get router info routing-table all</code></pre>
           <tr><td>Timed out / connection refused</td><td>Wrong IP or admin port, HTTPS not allowed on that FortiGate interface, or a firewall in between. Open <code>https://&lt;FortiGate IP&gt;</code> in a browser on this server to check.</td></tr>
           <tr><td>"No SD-WAN health-check data for …"</td><td>The interface name does not match exactly, or the interface is not a member of the health check. <strong>Test FortiGate Connection</strong> lists the members it sees.</td></tr>
           <tr><td>A link shows DOWN but it works</td><td>The health-check target is unreachable over that ISP (e.g. ICMP blocked). Use another server or protocol (HTTP/DNS). On high-latency links (satellite, some LTE) raise the health check's <code>probe-timeout</code> above the normal latency.</td></tr>
-          <tr><td>"Remote access is disabled"</td><td>No dashboard password yet. Run <code>node server.js --set-password</code> on the server and restart.</td></tr>
+          <tr><td>"Remote access is disabled"</td><td>No dashboard password yet. As Administrator run <code>wanmon.cmd --set-password</code> then <code>wanmon.cmd restart</code> (in <code>C:\Program Files\FortiGate WAN Monitor</code>).</td></tr>
           <tr><td>No alerts arrive</td><td>Use each channel's Test button; errors are shown there. For Microsoft 365 email, enable Authenticated SMTP for the mailbox.</td></tr>
-          <tr><td>Report coverage below 100%</td><td>The monitor was stopped or the PC was off for part of the day. Install it as a service (<code>register-service.ps1</code>).</td></tr>
+          <tr><td>Report coverage below 100%</td><td>The monitor was stopped or the PC was off for part of the day. Install it with <code>Install.cmd</code> so it runs as a background service that starts with Windows.</td></tr>
         </table>
       </section>
     </main>

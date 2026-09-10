@@ -763,7 +763,7 @@ async function openSettingsModal() {
     document.getElementById('cfgWebhookUrl').value = hookUrl;
     document.getElementById('securityNote').textContent = cfg.security?.passwordSet
       ? `Remote dashboard access is enabled (user "${cfg.security.user}").`
-      : 'Remote dashboard access is disabled until you set a password: run "node server.js --set-password" on the server.';
+      : 'Remote dashboard access is disabled until you set a password. On the server (as Administrator): wanmon.cmd --set-password, then wanmon.cmd restart. See Help > Remote access.';
 
     // Thresholds
     document.getElementById('thLossWarn').value = cfg.thresholds?.packetLossWarning ?? 2.0;

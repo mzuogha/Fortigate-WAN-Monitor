@@ -545,3 +545,42 @@ test('Help page and its script are served', async (t) => {
   const index = await (await req('/')).text();
   assert.match(index, /href="help.html#connect"/, 'Settings > FortiGate API links to the connection guide');
 });
+
+// ------------------------------------------------------------------ installer integration
+const { execFileSync } = require('node:child_process');
+const fsTest = require('node:fs');
+const pathTest = require('node:path');
+const osTest = require('node:os');
+
+test('CLI used by install.ps1: --data-dir, --set-port/--get-port and password via environment', () => {
+  const dir = fsTest.mkdtempSync(pathTest.join(osTest.tmpdir(), 'wanmon-'));
+  const server = pathTest.join(__dirname, '..', 'server.js');
+  const env = { ...process.env, NODE_NO_WARNINGS: '1' };
+  delete env.PORT;
+  delete env.DB_PATH;
+  execFileSync(process.execPath, [server, '--data-dir', dir, '--set-port', '4999'], { env });
+  const port = execFileSync(process.execPath, [server, '--data-dir', dir, '--get-port'], { env }).toString().trim();
+  assert.equal(port, '4999');
+  execFileSync(process.execPath, [server, '--data-dir', dir, '--set-password'], { env: { ...env, WANMON_NEW_PASSWORD: 'installer-pass-1' } });
+  const db = new MonitorDB(pathTest.join(dir, 'monitor.db'));
+  assert.ok(verifyPassword('installer-pass-1', db.getSetting('security').passwordHash));
+  db.close();
+  fsTest.rmSync(dir, { recursive: true, force: true });
+});
+
+test('install.json (written by the installer, possibly with a BOM) sets the data folder', () => {
+  const dir = fsTest.mkdtempSync(pathTest.join(osTest.tmpdir(), 'wanmon-'));
+  const appCopy = fsTest.mkdtempSync(pathTest.join(osTest.tmpdir(), 'wanmon-app-'));
+  fsTest.copyFileSync(pathTest.join(__dirname, '..', 'config.js'), pathTest.join(appCopy, 'config.js'));
+  fsTest.writeFileSync(pathTest.join(appCopy, 'install.json'), `\ufeff${JSON.stringify({ dataDir: dir })}`);
+  const env = { ...process.env };
+  delete env.DB_PATH;
+  delete env.WANMON_DATA_DIR;
+  const out = execFileSync(process.execPath, ['-e', 'const c=require("./config");console.log(JSON.stringify([c.dbPath,c.logFile]))'],
+    { cwd: appCopy, env }).toString();
+  const [dbPath, logFile] = JSON.parse(out);
+  assert.equal(dbPath, pathTest.join(dir, 'monitor.db'));
+  assert.equal(logFile, pathTest.join(dir, 'monitor.log'));
+  fsTest.rmSync(dir, { recursive: true, force: true });
+  fsTest.rmSync(appCopy, { recursive: true, force: true });
+});

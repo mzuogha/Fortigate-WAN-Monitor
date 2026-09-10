@@ -1,0 +1,5 @@
+# Windows batch files must keep CRLF line endings (stored as-is, never converted)
+*.cmd -text
+*.bat -text
+# PowerShell scripts: CRLF on checkout
+*.ps1 text eol=crlf

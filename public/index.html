@@ -624,21 +624,21 @@
             </div>
           </div>
           <div class="guide-alert" style="margin-bottom:16px;">
-            After changing the port, also update the <strong>Automation Stitch webhook URL</strong> on the FortiGate (if you use it) and any bookmarks. On Windows the monitor updates its firewall rule automatically when it runs as the background service; otherwise re-run <code>register-service.ps1 -Port &lt;new port&gt;</code>.
+            After changing the port, also update the <strong>Automation Stitch webhook URL</strong> on the FortiGate (if you use it) and any bookmarks. On Windows the monitor updates its firewall rule automatically when it runs as the background service; otherwise re-run <code>Install.cmd -Port &lt;new port&gt;</code>.
           </div>
           <span id="portFeedback" class="test-result-inline"></span>
 
           <h4 style="margin-top:22px;">Windows Server 24/7 Background Service</h4>
           <p style="font-size:0.85rem; color:var(--text-secondary);">
-            To keep this monitor running across reboots and user logoffs, install it as a Windows background task using the provided script.
+            To keep this monitor running across reboots and user logoffs, install it with the installer.
           </p>
           <div class="guide-step">
-            <h4>One-Click Persistence Installation:</h4>
-            <p>Open <strong>PowerShell as Administrator</strong> in the application directory and run:</p>
-            <pre><code>.\register-service.ps1            # or: .\register-service.ps1 -Port 5000</code></pre>
+            <h4>One-click installation:</h4>
+            <p>In the extracted project folder, double-click <strong>Install.cmd</strong> and approve the Windows UAC prompt. Node.js is downloaded and installed automatically if needed. <a href="help.html#install" target="_blank" rel="noopener">Installation guide</a></p>
+            <pre><code>Install.cmd                      # or: Install.cmd -Port 5000 -PromptForPassword</code></pre>
           </div>
           <div class="guide-alert" style="margin-top:10px;">
-            <strong>What register-service.ps1 does:</strong><br>
+            <strong>What the installer sets up:</strong><br>
             • <strong>Automatic boot startup</strong> before any user logs in.<br>
             • <strong>Auto-recovery</strong>: restarts within 1 minute if it stops.<br>
             • <strong>Firewall rule</strong> for the dashboard/webhook port.<br>

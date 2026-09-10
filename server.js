@@ -6,13 +6,26 @@
  *   node server.js                         start the monitor
  *   node server.js --set-password          set the dashboard password (enables remote access)
  *   node server.js --show-webhook-token    print the token the FortiGate webhook must send
- *   node server.js --set-port 5000         change the listening port (used by register-service.ps1)
+ *   node server.js --set-port 5000         change the listening port (used by install.ps1)
+ *   node server.js --data-dir <folder>     keep the database and log in <folder>
  *   node server.js --get-port              print the configured listening port
  */
 
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const util = require('node:util');
+
+// --data-dir <folder> must be applied before config.js is loaded
+if (require.main === module) {
+  const i = process.argv.indexOf('--data-dir');
+  if (i > 0 && process.argv[i + 1]) {
+    const dir = path.resolve(process.argv[i + 1]);
+    fs.mkdirSync(dir, { recursive: true });
+    process.env.WANMON_DATA_DIR = dir;
+  }
+}
+
 const crypto = require('node:crypto');
 const readline = require('node:readline');
 const os = require('node:os');
@@ -158,7 +171,9 @@ async function runCli(args, db) {
   if (args.includes('--set-password')) {
     const idx = args.indexOf('--set-password');
     const next = args[idx + 1];
-    let pw = next && !next.startsWith('--') ? next : await prompt('New dashboard password (min 8 characters): ');
+    // WANMON_NEW_PASSWORD lets the installer pass the password without exposing it on a command line
+    let pw = process.env.WANMON_NEW_PASSWORD ||
+      (next && !next.startsWith('--') ? next : await prompt('New dashboard password (min 8 characters): '));
     pw = String(pw || '').trim();
     if (pw.length < 8) {
       console.error('Password must be at least 8 characters.');
@@ -167,7 +182,7 @@ async function runCli(args, db) {
     const sec = db.getSetting('security', {}) || {};
     db.setSetting('security', { ...sec, passwordHash: hashPassword(pw) });
     console.log(`Dashboard password set. Log in as user "${defaultConfig.security.dashboardUser}". ` +
-      'Restart the monitor for it to take effect.');
+      'Restart the monitor for it to take effect (installed copies: wanmon.cmd restart).');
     process.exit(0);
   }
   if (args.includes('--set-port')) {
@@ -442,7 +457,10 @@ function createApp(options = {}) {
       if (isLoopback(ip) && localHost) return true;
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Remote access is disabled until a dashboard password is set.\n' +
-        'On the monitoring server run:  node server.js --set-password\n' +
+        'On the monitoring server, in an Administrator command prompt, run:\n' +
+        '  "C:\\Program Files\\FortiGate WAN Monitor\\wanmon.cmd" --set-password\n' +
+        '  "C:\\Program Files\\FortiGate WAN Monitor\\wanmon.cmd" restart\n' +
+        '(or "node server.js --set-password" when running from a folder)\n' +
         `or open http://localhost:${appConfig.port || 4000} on the server itself.`);
       return false;
     }
@@ -639,7 +657,7 @@ function createApp(options = {}) {
       }, (err) => {
         if (err) {
           resolve(`Could not update Windows Firewall automatically. In an Administrator PowerShell run: ` +
-            `.\\register-service.ps1 -Port ${newPort}`);
+            `Install.cmd -Port ${newPort}`);
         } else {
           resolve(`Windows Firewall now allows TCP ${newPort}.`);
         }
@@ -1041,9 +1059,31 @@ function createApp(options = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------- file logging
+function setupFileLogging(file) {
+  const MAX_BYTES = 5 * 1024 * 1024;
+  const write = (level, args) => {
+    try {
+      try {
+        if (fs.statSync(file).size > MAX_BYTES) fs.renameSync(file, `${file}.1`);
+      } catch (_) { /* file does not exist yet */ }
+      fs.appendFileSync(file, `${new Date().toISOString()} ${level} ${util.format(...args)}\n`);
+    } catch (_) { /* never let logging break the monitor */ }
+  };
+  for (const [method, level] of [['log', 'INFO'], ['warn', 'WARN'], ['error', 'ERROR']]) {
+    const original = console[method].bind(console);
+    console[method] = (...args) => {
+      original(...args);
+      write(level, args);
+    };
+  }
+}
+
 // ---------------------------------------------------------------------------- main
 if (require.main === module) {
   process.on('unhandledRejection', (err) => console.error('[Unhandled rejection]', err));
+  const cliOnly = ['--set-password', '--set-port', '--get-port', '--show-webhook-token'].some(a => process.argv.includes(a));
+  if (defaultConfig.logFile && !cliOnly) setupFileLogging(defaultConfig.logFile);
 
   (async () => {
     const args = process.argv.slice(2);
@@ -1060,9 +1100,10 @@ if (require.main === module) {
     console.log(`  Help:          http://localhost:${addr.port}/help.html`);
     console.log(`  Remote access: ${app.security.passwordHash
       ? `enabled (user "${app.security.user}")`
-      : 'DISABLED - run "node server.js --set-password" to enable'}`);
+      : 'DISABLED - set a password: wanmon.cmd --set-password (or node server.js --set-password)'}`);
     console.log(`  Webhook:       http://<this-server>:${addr.port}/api/webhook/fortigate?token=<see Settings>`);
     console.log(`  Mode:          ${cfg.simulation.enabled ? 'SIMULATION (fake data)' : `FortiGate ${cfg.fortigate.host}`}`);
+    console.log(`  Data:          ${cfg.dbPath}`);
     console.log('=======================================================');
 
     const shutdown = async (sig) => {

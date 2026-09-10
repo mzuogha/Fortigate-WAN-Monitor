@@ -15,3 +15,7 @@ desktop.ini
 
 # Environment / local overrides
 .env
+
+# Written by install.ps1 on the target PC
+install.json
+wanmon.cmd
